@@ -54,7 +54,7 @@ async fn create(State(data): State<Data>, headers: HeaderMap, Json(body): Json<V
     authorize(&headers)?;
     let mut data = data.lock().unwrap();
     let number = data.issues.len() as u64 + 43;
-    let issue = json!({"number":number,"state":"open","title":body["title"],"body":body["body"],
+    let issue = json!({"id":number,"number":number,"state":"open","title":body["title"],"body":body["body"],
         "html_url":format!("{}/team/web/issues/{number}", data.base),
         "assignees":[{"login":body["assignees"][0]}]});
     data.issues.push(issue.clone());
@@ -87,8 +87,10 @@ async fn issue(State(data): State<Data>, Path(number): Path<u64>, headers: Heade
     authorize(&headers)?;
     let data = data.lock().unwrap();
     if number == 42 {
-        return Ok(Json(json!({"number":42,"state":"open","title":"Export",
-            "body":format!("Export spec: [schema]({}/team/specs/src/commit/{OLD}/docs/export%20schema.yaml)", data.base)})));
+        return Ok(Json(
+            json!({"id":42,"number":42,"state":"open","title":"Export",
+            "body":format!("Export spec: [schema]({}/team/specs/src/commit/{OLD}/docs/export%20schema.yaml)", data.base)}),
+        ));
     }
     data.issues
         .iter()

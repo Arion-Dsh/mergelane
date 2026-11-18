@@ -126,6 +126,10 @@ impl Jira {
 }
 
 impl Api for Jira {
+    fn instance(&self) -> &Url {
+        &self.http.web
+    }
+
     async fn check_connection(&self) -> anyhow::Result<()> {
         let value = self.http.get(&["myself"], &[]).await?;
         required(&value, "accountId")?;

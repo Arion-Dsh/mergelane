@@ -29,6 +29,8 @@ pub struct Gitea {
 
 #[derive(Deserialize, Serialize)]
 pub struct Issue {
+    #[serde(default, skip_serializing)]
+    id: u64,
     pub number: u64,
     pub title: String,
     #[serde(default)]
@@ -60,6 +62,12 @@ impl Comment {
 }
 
 impl Gitea {
+    pub(crate) async fn lease_key(&self, reference: &str) -> anyhow::Result<crate::lease::TaskKey> {
+        let issue = self.read_issue(&self.issue_ref(reference)?).await?;
+        ensure!(issue.id > 0, "Gitea did not return a stable issue ID");
+        crate::lease::TaskKey::new("gitea", &self.base, &issue.id.to_string())
+    }
+
     pub(crate) async fn check_connection(&self) -> anyhow::Result<()> {
         let user: User = self
             .get(

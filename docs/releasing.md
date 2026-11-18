@@ -17,8 +17,8 @@
 ## 首次发布前
 
 1. 审查并提交源码，推送到主仓库。
-2. 创建并初始化公开仓库 `Arion-Dsh/homebrew-tap`，使用 [Tap 初始文件](../packaging/homebrew-tap/README.md) 和其中的 `.github/workflows/install.yml`。初始仓库不放占位 Formula；正式发布时由 cargo-dist 写入。
-3. 在主仓库设置 Actions Secret `HOMEBREW_TAP_TOKEN`，使用仅可访问 Tap 仓库、具有 Contents 读写权限的凭据。主仓库 Release 使用内置 `GITHUB_TOKEN`。不得把 token 写入源码或普通配置。
+2. 确认自建 [Homebrew Tap](https://github.com/Arion-Dsh/homebrew-tap) 可访问。Tap 已初始化，正式发布时由 cargo-dist 写入首个 Formula。初始化文件保存在 [Tap 模板目录](../packaging/homebrew-tap/README.md)。
+3. 在 GitHub [创建细粒度 token](https://github.com/settings/personal-access-tokens/new)，仅选择 `Arion-Dsh/homebrew-tap`，赋予 Contents 读写权限。在主仓库的 [Actions Secrets](https://github.com/Arion-Dsh/mergelane/settings/secrets/actions/new) 保存为 `HOMEBREW_TAP_TOKEN`。主仓库 Release 使用内置 `GITHUB_TOKEN`。
 4. 确认 Actions、Artifact Attestations、公开 Release 可用，并配置私下漏洞报告渠道。
 5. 核对版本号、[更新日志](../CHANGELOG.md)、自动化测试及各系统构建结果，完成下面的发布演练。
 

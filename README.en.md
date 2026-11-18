@@ -8,13 +8,15 @@ MergeLane provides MCP collaboration tools for teams using Gitea, Plane, GitHub,
 
 MergeLane runs on each developer's machine over MCP stdio. Issues and checkpoints stay in your existing task platform. The latest plan preview lives in the current MCP session; no additional MergeLane server or database is required.
 
+Before starting work, the agent claims a local task lease. Sessions under the same OS user on the same computer share the lease store across clients and worktrees. The owning MCP connection renews its lease automatically. The agent releases it when done or paused, and a crashed session's lease can be reclaimed after expiry. See the [task lease workflow](docs/collaboration.md#本地任务租约).
+
 All five integrations can run independently or together, with separate credentials, write flags, and pending previews. GitHub, GitLab, and Jira share a REST collaboration workflow while adapters preserve platform-specific identity, search, and dependency semantics. See the [GitHub](docs/github.md), [GitLab](docs/gitlab.md), and [Jira](docs/jira.md) setup guides (in Chinese).
 
 Native blockers depend on the platform's APIs, permissions, and plan. GitLab blocking relations require an eligible plan; Jira support targets Cloud REST v3. Git file version comparisons remain available through Gitea and Plane. The three new adapters have mock API coverage; live account acceptance has not been performed.
 
 ## Getting started
 
-After the first Release and Tap update, macOS users can install prebuilt binaries without Rust:
+After the first stable release, macOS users can install prebuilt binaries from the [MergeLane Homebrew tap](https://github.com/Arion-Dsh/homebrew-tap) using the full formula name:
 
 ```sh
 brew install Arion-Dsh/tap/mergelane
@@ -22,7 +24,7 @@ mergelane init
 mergelane doctor
 ```
 
-**The first Release and Tap are not published yet, so the brew command is not available.** See [installation and setup](docs/installation.md) (in Chinese). Source builds require Rust 1.97.0, pinned in [rust-toolchain.toml](rust-toolchain.toml).
+**The tap is initialized. This command becomes available when the first release publishes the formula.** See [installation and setup](docs/installation.md) (in Chinese). Source builds require Rust 1.97.0, pinned in [rust-toolchain.toml](rust-toolchain.toml).
 
 ```sh
 cargo install --locked --path .

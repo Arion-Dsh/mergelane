@@ -1,4 +1,6 @@
-use serde_json::json;
+use std::time::Duration;
+
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 mod support;
@@ -33,6 +35,132 @@ async fn initialize(mcp: &mut Mcp) {
         .await;
 }
 
+#[tokio::test]
+async fn local_lease_serializes_processes_and_expires_after_crash() {
+    let server = Server::start(Platform::GitHub).await;
+    let home = TempDir::new().unwrap();
+    let other_worktree = TempDir::new().unwrap();
+    let credential = token(home.path(), "token", "fake-token");
+    let launch = |cwd: &std::path::Path| {
+        let mut command = support::command();
+        command
+            .current_dir(cwd)
+            .env(
+                if cfg!(windows) { "USERPROFILE" } else { "HOME" },
+                home.path(),
+            )
+            .args([
+                "--no-config",
+                "mcp",
+                "--github-url",
+                &server.base,
+                "--github-token-file",
+            ])
+            .arg(&credential)
+            .args(["--github-write", "--lease-seconds", "3"]);
+        Mcp::start(command)
+    };
+    let mut first = launch(home.path());
+    let mut second = launch(other_worktree.path());
+    initialize(&mut first).await;
+    initialize(&mut second).await;
+    let short = json!({"backend":"github","issue":"team/web#42"});
+    let link = json!({"backend":"github","issue":format!("{}/team/web/issues/42", server.base)});
+    let (a, b) = tokio::join!(
+        first.tool("mergelane_claim_task", short.clone()),
+        second.tool("mergelane_claim_task", link.clone())
+    );
+    let (winner, other, result) = match (a["isError"] == true, b["isError"] == true) {
+        (false, true) => (&mut first, &mut second, a),
+        (true, false) => (&mut second, &mut first, b),
+        _ => panic!("expected one claim winner: {a}, {b}"),
+    };
+    let grant = tool_result(result);
+    let id = json!({"lease_id": grant["lease_id"]});
+    assert_eq!(
+        other.tool("mergelane_release_task", id.clone()).await["isError"],
+        true
+    );
+    assert_eq!(
+        other.tool("mergelane_renew_task", id.clone()).await["isError"],
+        true
+    );
+    let checkpoint = json!({
+        "issue":"team/web#42", "summary":"Test progress", "next":[], "confirmed":true,
+        "lease_id":grant["lease_id"]
+    });
+    assert_eq!(
+        other.tool("github_checkpoint", checkpoint.clone()).await["isError"],
+        true
+    );
+    let mut unleased = checkpoint.clone();
+    unleased.as_object_mut().unwrap().remove("lease_id");
+    assert_eq!(
+        other.tool("github_checkpoint", unleased.clone()).await["isError"],
+        true
+    );
+    tool_result(winner.tool("github_checkpoint", checkpoint.clone()).await);
+
+    let renewed = tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            let status = other.tool("mergelane_task_lease", short.clone()).await;
+            if status["isError"] != true {
+                let current = tool_result(status);
+                if current["expires_at_unix_ms"].as_u64() > grant["expires_at_unix_ms"].as_u64() {
+                    break current;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    })
+    .await
+    .expect("owning MCP renews without further calls");
+    assert_eq!(renewed["status"], "held");
+
+    winner.child.kill().await.unwrap();
+    assert_eq!(
+        other.tool("mergelane_claim_task", link.clone()).await["isError"],
+        true
+    );
+    let takeover = tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            let response = other.tool("mergelane_claim_task", link.clone()).await;
+            if response["isError"] != true {
+                break tool_result(response);
+            }
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+    })
+    .await
+    .expect("dead session's lease expires without renewal");
+    assert_ne!(takeover["lease_id"], grant["lease_id"]);
+    assert_eq!(
+        other.tool("github_checkpoint", checkpoint).await["isError"],
+        true
+    );
+    assert_eq!(
+        tool_result(
+            other
+                .tool(
+                    "mergelane_release_task",
+                    json!({
+                        "lease_id": takeover["lease_id"]
+                    })
+                )
+                .await
+        )["status"],
+        "released"
+    );
+    assert_eq!(
+        other.tool("github_checkpoint", unleased).await["isError"],
+        true
+    );
+    let mut reopened = launch(home.path());
+    initialize(&mut reopened).await;
+    let next: Value = tool_result(reopened.tool("mergelane_claim_task", short).await);
+    assert_ne!(next["lease_id"], takeover["lease_id"]);
+}
+
 async fn workflow(platform: Platform) {
     let server = Server::start(platform).await;
     let dir = TempDir::new().unwrap();
@@ -45,7 +173,7 @@ async fn workflow(platform: Platform) {
             .as_array()
             .unwrap()
             .len(),
-        5
+        9
     );
     let parent = platform.key(42);
     let context = tool_result(
@@ -126,7 +254,7 @@ async fn workflow(platform: Platform) {
             .as_array()
             .unwrap()
             .len(),
-        3
+        7
     );
     assert_eq!(
         member
@@ -224,7 +352,7 @@ async fn all_five_backends_keep_tool_names_and_write_permissions_separate() {
     initialize(&mut client).await;
     let tools = client.request("tools/list", json!({})).await;
     let tools = tools["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 19);
+    assert_eq!(tools.len(), 23);
     let names = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
@@ -321,7 +449,7 @@ async fn setup_preserves_other_backends_and_doctor_only_reads_authenticated_acco
             .as_array()
             .unwrap()
             .len(),
-        9
+        10
     );
     let context = tool_result(
         client
@@ -377,7 +505,7 @@ async fn setup_preserves_other_backends_and_doctor_only_reads_authenticated_acco
             .as_array()
             .unwrap()
             .len(),
-        15
+        19
     );
     configured.child.kill().await.unwrap();
     let output = support::command()
@@ -450,7 +578,7 @@ async fn invalid_settings_fail_without_overwriting_and_help_can_bypass_them() {
             .as_array()
             .unwrap()
             .len(),
-        3
+        7
     );
     client.child.kill().await.unwrap();
 }

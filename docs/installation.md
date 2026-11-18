@@ -4,7 +4,7 @@
 
 ## Homebrew 与安装包
 
-首次正式 Release 与 Tap 更新后，Mac 用户可执行：
+首版使用 [MergeLane 自建 Tap](https://github.com/Arion-Dsh/homebrew-tap)。首次正式 Release 与 Formula 发布后，Mac 用户可以直接用完整包名安装：
 
 ```sh
 brew install Arion-Dsh/tap/mergelane
@@ -13,7 +13,7 @@ mergelane --version
 
 支持 Apple Silicon 和 Intel Mac，升级用 `brew upgrade Arion-Dsh/tap/mergelane`。Linux ARM64／x64 和 Windows x64 用户从 [Releases](https://github.com/Arion-Dsh/mergelane/releases) 下载对应归档并核对 SHA-256，或使用该版本页面提供的 shell／PowerShell 安装器。
 
-**首个 Release 和 Tap 尚未发布，brew 命令目前不可用。** 发布配置与前置条件见 [发布指南](releasing.md)。在本地源码目录仍可用 `cargo install --locked --path .` 安装，需要 Rust 1.97.0。
+**Tap 已初始化，正在等待首个 Release 和 Formula。** 发布配置见 [发布指南](releasing.md)。在本地源码目录可用 `cargo install --locked --path .` 安装，需要 Rust 1.97.0。
 
 Windows 用户可在 PowerShell 中运行 `Get-FileHash <下载的 ZIP 路径> -Algorithm SHA256`，与同名 `.sha256` 文件比较后解压使用。当前生成的 PowerShell 安装器不内置归档校验；需要校验时使用 ZIP 下载方式。
 
@@ -25,7 +25,7 @@ Windows 用户可在 PowerShell 中运行 `Get-FileHash <下载的 ZIP 路径> -
 mergelane init
 ```
 
-向导询问平台、地址、token 文件路径和平台专属设置，默认只读。再次运行可添加另一个平台，保留已有平台；替换同一平台必须使用 `--replace`。要启用发布工具，显式加 `--write`，实际发布仍需确认预览。
+向导询问平台、地址、token 文件路径和平台专属设置，默认对远端只读。再次运行可添加另一个平台，保留已有平台；替换同一平台必须使用 `--replace`。要启用发布工具，显式加 `--write`，实际发布仍需确认。设置完成后可在 Agent 内按 [本地任务租约](collaboration.md#本地任务租约) 开工。
 
 非交互示例：
 

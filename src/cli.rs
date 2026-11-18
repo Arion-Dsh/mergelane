@@ -113,6 +113,21 @@ pub(crate) struct WriteOptions {
 }
 
 impl WriteOptions {
+    pub(crate) fn permits_local_claims(&self) -> bool {
+        !self.read_only
+    }
+
+    pub(crate) fn permits(&self, backend: crate::settings::Backend) -> bool {
+        use crate::settings::Backend;
+        match backend {
+            Backend::Gitea => self.gitea_write,
+            Backend::Plane => self.plane_write,
+            Backend::Github => self.github_write,
+            Backend::Gitlab => self.gitlab_write,
+            Backend::Jira => self.jira_write,
+        }
+    }
+
     pub fn effective(mut self) -> Self {
         if self.read_only {
             self.gitea_write = false;
@@ -145,6 +160,9 @@ pub(crate) enum Mode {
         connection: Box<McpConnection>,
         #[command(flatten)]
         writes: WriteOptions,
+        /// Local task lease lifetime after the last renewal.
+        #[arg(long, default_value = "120", value_parser = clap::value_parser!(u64).range(3..=600))]
+        lease_seconds: u64,
     },
     /// Read an issue and check its file dependencies.
     GiteaContext {

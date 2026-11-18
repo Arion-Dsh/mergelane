@@ -64,6 +64,11 @@ struct Comment {
 }
 
 impl Plane {
+    pub(crate) async fn lease_key(&self, reference: &str) -> anyhow::Result<crate::lease::TaskKey> {
+        let item = self.item(&self.reference(reference).await?).await?;
+        crate::lease::TaskKey::new("plane", &self.base, &item.id.to_string())
+    }
+
     pub(crate) async fn check_connection(&self) -> anyhow::Result<()> {
         self.current_user().await?;
         Ok(())

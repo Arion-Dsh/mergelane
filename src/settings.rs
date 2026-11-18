@@ -206,7 +206,7 @@ pub(crate) fn default_path() -> anyhow::Result<PathBuf> {
     Ok(home()?.join(".config/mergelane/config.json"))
 }
 
-fn home() -> anyhow::Result<PathBuf> {
+pub(crate) fn home() -> anyhow::Result<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)

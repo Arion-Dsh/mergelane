@@ -96,6 +96,10 @@ impl GitLab {
 }
 
 impl Api for GitLab {
+    fn instance(&self) -> &Url {
+        &self.http.web
+    }
+
     async fn check_connection(&self) -> anyhow::Result<()> {
         let user: User = serde_json::from_value(self.http.get(&["user"], &[]).await?)?;
         ensure!(user.id > 0, "GitLab returned an invalid account ID");

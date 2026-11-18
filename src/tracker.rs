@@ -83,6 +83,7 @@ impl Search {
 /// Adapter methods never follow remote URLs; identifiers are parsed by their own platform.
 pub(crate) trait Api {
     fn name(&self) -> &'static str;
+    fn instance(&self) -> &reqwest::Url;
     async fn check_connection(&self) -> anyhow::Result<()>;
     fn project(&self, value: &str) -> anyhow::Result<String>;
     async fn search(&self, input: Search) -> anyhow::Result<Value>;
@@ -104,6 +105,38 @@ pub(crate) struct Backends {
 }
 
 impl Backends {
+    pub async fn lease_key(
+        &self,
+        backend: crate::settings::Backend,
+        issue: &str,
+    ) -> anyhow::Result<crate::lease::TaskKey> {
+        use crate::settings::Backend;
+        match backend {
+            Backend::Github => {
+                self.github
+                    .as_ref()
+                    .context("GitHub is not configured")?
+                    .lease_key(issue)
+                    .await
+            }
+            Backend::Gitlab => {
+                self.gitlab
+                    .as_ref()
+                    .context("GitLab is not configured")?
+                    .lease_key(issue)
+                    .await
+            }
+            Backend::Jira => {
+                self.jira
+                    .as_ref()
+                    .context("Jira is not configured")?
+                    .lease_key(issue)
+                    .await
+            }
+            _ => anyhow::bail!("unsupported tracker for this connection"),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.github.is_none() && self.gitlab.is_none() && self.jira.is_none()
     }
@@ -157,6 +190,11 @@ pub(crate) struct Session<A> {
 }
 
 impl<A: Api> Session<A> {
+    async fn lease_key(&self, reference: &str) -> anyhow::Result<crate::lease::TaskKey> {
+        let issue = self.api.issue(reference).await?;
+        crate::lease::TaskKey::new(self.api.name(), self.api.instance(), &issue.id)
+    }
+
     pub fn name(&self) -> &'static str {
         self.api.name()
     }

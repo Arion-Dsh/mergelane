@@ -15,13 +15,12 @@ use tokio::{
 
 pub fn command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_mergelane"));
-    command.env(
-        "XDG_CONFIG_HOME",
-        std::env::temp_dir().join(format!(
-            "mergelane-unconfigured-tests-{}",
-            std::process::id()
-        )),
-    );
+    let root = std::env::temp_dir().join(format!(
+        "mergelane-unconfigured-tests-{}",
+        std::process::id()
+    ));
+    command.env("XDG_CONFIG_HOME", &root);
+    command.env(if cfg!(windows) { "USERPROFILE" } else { "HOME" }, &root);
     // Tests must never open a developer's credential files or remote instances.
     for variable in [
         "GITEA_URL",

@@ -7,6 +7,7 @@ mod gitea;
 mod github;
 mod gitlab;
 mod jira;
+mod lease;
 mod mcp;
 mod plane;
 mod settings;
@@ -33,17 +34,14 @@ async fn main() -> anyhow::Result<()> {
             connection,
             offline,
         } => doctor::run(*connection, offline).await?,
-        Mode::Mcp { connection, writes } => {
+        Mode::Mcp {
+            connection,
+            writes,
+            lease_seconds,
+        } => {
             let writes = writes.effective();
             let connection = connection.open(&writes).await?;
-            mcp::run(
-                connection.gitea,
-                connection.plane,
-                writes.gitea_write,
-                writes.plane_write,
-                connection.trackers,
-            )
-            .await?
+            mcp::run(connection, writes, Duration::from_secs(lease_seconds)).await?
         }
         Mode::GiteaContext { gitea, issue } => {
             println!("{}", gitea.open().await?.context(&issue).await?);

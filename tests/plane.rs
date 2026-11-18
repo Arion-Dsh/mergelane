@@ -335,7 +335,7 @@ async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracki
     lead.request("initialize", json!({"protocolVersion":"2025-06-18"}))
         .await;
     let tools = lead.request("tools/list", json!({})).await;
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 5);
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 9);
     let context = result(
         lead.tool("plane_issue_context", json!({"issue":parent}))
             .await,

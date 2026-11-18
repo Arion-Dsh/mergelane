@@ -53,7 +53,11 @@ def smoke(binary, root, version):
                  input="".join(json.dumps(request) + "\n" for request in requests))
     responses = {message["id"]: message for message in map(json.loads, output.splitlines())}
     assert "serverInfo" in responses[1]["result"]
-    assert len(responses[2]["result"]["tools"]) == 3
+    names = {tool["name"] for tool in responses[2]["result"]["tools"]}
+    assert names == {
+        "github_search_issues", "github_issue_context", "github_preview_plan",
+        "mergelane_task_lease",
+    }
     print(f"CLI, init, offline doctor and read-only MCP passed: {binary}")
 
 

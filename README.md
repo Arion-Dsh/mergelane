@@ -12,6 +12,7 @@ MergeLane 是运行在开发机上的 MCP stdio 命令。团队已有的任务�
 
 - 按任务、项目或队员查询进度，读取需求、阻塞关系和检查点。
 - 先预览拆单计划，确认后创建任务、指派成员并建立原生依赖关系。
+- 开工时领取本地租约，防止同一台电脑上的多个 Agent 会话通过 MergeLane 同时领取同一工单。
 - 在工单评论中发布检查点，供其他成员或新的 Agent 会话接手。
 - 对比工单引用的 Gitea 固定版本文件与默认分支，提示资料变更。
 - 在部分发布失败后，使用相同计划继续补齐任务、依赖和汇总。
@@ -30,7 +31,7 @@ MergeLane 是运行在开发机上的 MCP stdio 命令。团队已有的任务�
 
 ## 开始使用
 
-普通用户只需要支持 MCP stdio 的客户端和可访问的任务平台。首次正式 Release 与 Tap 更新后，macOS 可无需 Rust 安装预编译包：
+普通用户只需要支持 MCP stdio 的客户端和可访问的任务平台。首版通过 [MergeLane 自建 Tap](https://github.com/Arion-Dsh/homebrew-tap) 分发 macOS 预编译包。正式发布后，使用完整包名即可安装：
 
 ```sh
 brew install Arion-Dsh/tap/mergelane
@@ -38,7 +39,7 @@ mergelane init
 mergelane doctor
 ```
 
-**首个 Release 和 Tap 尚未发布，brew 命令目前不可用。** 完整操作见 [安装与首次配置](docs/installation.md)。当前源码安装需要 Rust 1.97.0，工具链在 [rust-toolchain.toml](rust-toolchain.toml) 固定。
+**Tap 已初始化，首个 Release 和 Formula 发布后此命令可用。** 完整操作见 [安装与首次配置](docs/installation.md)。当前源码安装需要 Rust 1.97.0，工具链在 [rust-toolchain.toml](rust-toolchain.toml) 固定。
 
 1. 在源码目录安装：
 
@@ -48,7 +49,7 @@ mergelane doctor
    ```
 
 2. 创建自己的实例凭据，存入仓库外的文件；Unix 上将权限设为 `0600` 或 `0400`。程序只接受 HTTPS 或回环 HTTP，支持实例安装子路径。
-3. 从 [文档目录](docs/README.md) 选择团队使用的平台接入说明，把 `mergelane` 的绝对路径配置到 MCP 客户端，可同时配置多个平台。默认只读；需要发布任务或检查点时，显式添加对应的 `--<平台>-write`。
+3. 从 [文档目录](docs/README.md) 选择团队使用的平台接入说明，把 `mergelane` 的绝对路径配置到 MCP 客户端，可同时配置多个平台。默认对远端只读。发布任务或检查点需显式添加对应的 `--<平台>-write`。
 
 [.env.example](.env.example) 列出可用环境变量。MergeLane **不会自动加载 `.env`**；请在启动进程前导出变量，或在 MCP 客户端中设置它们。凭据通过文件读取，不直接写入配置或命令参数。
 
@@ -57,7 +58,7 @@ mergelane doctor
 | 角色 | 通过自己的 Agent 完成的工作 |
 | --- | --- |
 | 负责人 | 读取总任务、预览拆分、确认负责人和依赖、发布计划 |
-| 队员 | 查询自己的任务、核对前置依赖、执行开发、发布进度与验证结果 |
+| 队员 | 查询任务、核对依赖、领取、开发、发布检查点并释放 |
 | 管理者 | 按任务、项目或队员查询状态，读取阻塞原因与最近进展 |
 
 - 负责人：“读取这张总工单，把它拆成可分派的任务。先给我看计划。”
