@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - Formula/**
-      - .github/workflows/install.yml
   workflow_dispatch:
 
 permissions:

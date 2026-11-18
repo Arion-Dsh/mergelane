@@ -36,9 +36,9 @@ gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=dry-run
 
 这会在五个原生 runner 上运行格式、编译、Clippy、测试和归档构建，随后生成带真实归档校验和的 Formula、shell 和 PowerShell 安装器。产物保存在 Actions Artifacts，不创建 Release 或更新 Tap。
 
-成功后自动触发 [Package smoke](../.github/workflows/package-smoke.yml)，按同一份 dist 计划选择原生 runner：核对归档 SHA-256、解包、运行版本与帮助命令、使用临时假凭据执行 `init`、离线 `doctor` 和只读 MCP 握手。两个 macOS runner 还会通过临时 Tap 安装生成的 Formula，并运行同样的 CLI 检查。此阶段只把下载地址替换为本机归档服务，保留原始校验和；验证结束清理测试安装和 Tap。它不能代替发布后从正式 GitHub URL 安装的检查。
+成功后自动触发 [Package smoke](../.github/workflows/package-smoke.yml)，按同一份 dist 计划选择原生 runner：核对归档 SHA-256、解包、运行版本与帮助命令、使用临时假凭据执行 `init`、离线 `doctor` 和只读 MCP 握手。各平台还会使用生成的 shell／PowerShell 安装器安装到临时目录，再运行同样的 CLI 检查；两个 macOS runner 另通过临时 Tap 安装生成的 Formula。此阶段只把下载地址替换为本机归档服务，保留原始校验和，安装器不修改用户 PATH；验证结束清理测试安装和 Tap。它不能代替发布后从正式 GitHub URL 安装的检查。
 
-`Package smoke` 只接受主仓库 `main` 上维护者手动运行的成功构建，权限仅为读取源码和构建产物，不执行 PR 产物。演练与 Package smoke 均成功后，再开始正式发布。
+`Package smoke` 只接受主仓库当前 `main` 提交上维护者手动运行的成功构建，权限仅为读取源码和构建产物，不执行 PR 产物；演练期间若更新 `main`，需重新演练该提交。演练与 Package smoke 均成功后，再开始正式发布。
 
 ## 修改和验证配置
 

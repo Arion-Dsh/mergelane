@@ -16,6 +16,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'workflow_dispatch' &&
       github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_sha == github.sha &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-22.04
     outputs:
@@ -63,12 +64,21 @@ jobs:
         run: python3 scripts/smoke_package.py packages "$TARGET"
         if: runner.os != 'Windows'
       - uses: actions/download-artifact@v8
-        if: runner.os == 'macOS'
         with:
           name: artifacts-build-global
           path: packages
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
+      - name: Install using generated PowerShell installer
+        if: runner.os == 'Windows'
+        env:
+          TARGET: ${{ matrix.targets[0] }}
+        run: python scripts/smoke_installer.py packages "$env:TARGET"
+      - name: Install using generated shell installer
+        if: runner.os != 'Windows'
+        env:
+          TARGET: ${{ matrix.targets[0] }}
+        run: python3 scripts/smoke_installer.py packages "$TARGET"
       - name: Install generated Homebrew formula from local artifacts
         if: runner.os == 'macOS'
         run: python3 scripts/smoke_homebrew.py packages
