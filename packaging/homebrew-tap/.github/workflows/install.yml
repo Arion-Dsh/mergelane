@@ -1,0 +1,41 @@
+name: Homebrew install
+
+on:
+  push:
+    paths:
+      - Formula/**
+      - .github/workflows/install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install this exact formula revision
+        shell: bash
+        run: |
+          test -f Formula/mergelane.rb
+          brew tap Arion-Dsh/tap
+          tap_dir="$(brew --repository Arion-Dsh/tap)"
+          cp Formula/mergelane.rb "$tap_dir/Formula/mergelane.rb"
+          brew install Arion-Dsh/tap/mergelane
+      - name: Check installed commands
+        run: |
+          mergelane --version
+          mergelane init --help
+          mergelane doctor --help
+          mergelane mcp --help

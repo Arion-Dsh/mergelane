@@ -1,0 +1,20 @@
+name: Feature request / 功能建议
+description: Describe a use case and desired behavior / 描述场景与预期行为
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case / 问题或使用场景
+      description: Explain who needs this and what they are trying to do. Remove private data.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Desired behavior / 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / 已考虑的替代方案

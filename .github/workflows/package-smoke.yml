@@ -1,0 +1,74 @@
+name: Package smoke
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    # Only execute packages built by a maintainer's manual run on main.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: artifacts-plan-dist-manifest
+          path: plan
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - id: matrix
+        run: |
+          echo "value=$(jq -c '.ci.github.artifacts_matrix' plan/plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+
+  archive:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+          path: packages
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Verify archive and run packaged CLI
+        env:
+          TARGET: ${{ matrix.targets[0] }}
+        run: python scripts/smoke_package.py packages "$env:TARGET"
+        if: runner.os == 'Windows'
+      - name: Verify archive and run packaged CLI
+        env:
+          TARGET: ${{ matrix.targets[0] }}
+        run: python3 scripts/smoke_package.py packages "$TARGET"
+        if: runner.os != 'Windows'
+      - uses: actions/download-artifact@v8
+        if: runner.os == 'macOS'
+        with:
+          name: artifacts-build-global
+          path: packages
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Install generated Homebrew formula from local artifacts
+        if: runner.os == 'macOS'
+        run: python3 scripts/smoke_homebrew.py packages

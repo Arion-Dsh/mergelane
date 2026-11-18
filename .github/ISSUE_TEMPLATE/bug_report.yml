@@ -1,0 +1,36 @@
+name: Bug report / 问题反馈
+description: Report a reproducible problem / 报告可复现的问题
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove tokens, private URLs, issue contents, and personal paths before posting.
+        For security vulnerabilities, follow SECURITY.md instead of posting details here.
+        请先脱敏。安全漏洞请按 SECURITY.md 私下报告。
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: MergeLane version or commit, OS, Rust version, MCP client, Gitea or Plane version.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Include minimal commands or configuration with fake credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+      description: Include sanitized errors and logs if available.
+    validations:
+      required: true
