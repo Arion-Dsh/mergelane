@@ -3,6 +3,7 @@
 
 import argparse
 from functools import partial
+import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
@@ -24,7 +25,10 @@ def main():
     installer = packages / ("mergelane-installer.ps1" if windows else "mergelane-installer.sh")
     archive = f"mergelane-{args.target}" + (".zip" if windows else ".tar.xz")
     checksum = (packages / (archive + ".sha256")).read_text().split()[0]
-    assert checksum in installer.read_text(), "installer must embed this archive's checksum"
+    assert hashlib.sha256((packages / archive).read_bytes()).hexdigest() == checksum
+    # cargo-dist 0.34.0 embeds hashes in shell installers, but not PowerShell.
+    if not windows:
+        assert checksum in installer.read_text(), "shell installer must embed this archive's checksum"
     version = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("MERGELANE_", "INSTALLER_", "CARGO_DIST_FORCE_INSTALL_DIR"))}

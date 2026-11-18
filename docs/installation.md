@@ -15,6 +15,8 @@ mergelane --version
 
 **首个 Release 和 Tap 尚未发布，brew 命令目前不可用。** 发布配置与前置条件见 [发布指南](releasing.md)。在本地源码目录仍可用 `cargo install --locked --path .` 安装，需要 Rust 1.97.0。
 
+Windows 用户可在 PowerShell 中运行 `Get-FileHash <下载的 ZIP 路径> -Algorithm SHA256`，与同名 `.sha256` 文件比较后解压使用。当前生成的 PowerShell 安装器不内置归档校验；需要校验时使用 ZIP 下载方式。
+
 ## 首次配置
 
 先在平台创建个人 token，保存到仓库外的文件；Unix 权限设为 `0600` 或 `0400`，不要把 token 值放进命令参数。
