@@ -10,18 +10,21 @@ use super::{
 };
 use crate::{
     gitea::Gitea,
+    issue,
     mcp::{ApplyArgs, ContextArgs, object, tool},
 };
 
 pub(crate) struct Session {
     write: bool,
+    default_project: Option<String>,
     pending: Option<Plan>,
 }
 
 impl Session {
-    pub(crate) fn new(write: bool) -> Self {
+    pub(crate) fn new(write: bool, default_project: Option<String>) -> Self {
         Self {
             write,
+            default_project,
             pending: None,
         }
     }
@@ -70,6 +73,15 @@ impl Session {
                     .checkpoint(serde_json::from_value::<Checkpoint>(args)?)
                     .await
             }
+            "plane_create_issue" if self.write => {
+                let input = issue::Create::parse(args)?;
+                let project = input.project(self.default_project.as_deref())?;
+                plane.create_issue(project, &input).await
+            }
+            "plane_assign_issue" if self.write => {
+                plane.assign_issue(issue::Assign::parse(args)?).await
+            }
+            "plane_edit_issue" if self.write => plane.edit_issue(issue::Edit::parse(args)?).await,
             _ => anyhow::bail!("unknown or disabled Plane tool"),
         }
     }
@@ -110,6 +122,11 @@ fn tools(write: bool) -> Vec<Value> {
         ),
     ];
     if write {
+        tools.extend(issue::tools(
+            "plane",
+            "Project identifier, name, or UUID in the configured Plane workspace.",
+            "Plane project member UUID from issue_context.",
+        ));
         tools.extend([
             tool("plane_apply_plan", "Publish the latest preview after the user confirms it. Creates assigned work items, native blocking relations, and a summary comment on the parent.",
                 object(json!({"plan_id":text,"confirmed":{"type":"boolean"}}), &["plan_id","confirmed"]), false),

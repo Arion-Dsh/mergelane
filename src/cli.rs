@@ -46,6 +46,9 @@ pub(crate) struct McpConnection {
     gitea_url: Option<Url>,
     #[arg(long, env = "GITEA_TOKEN_FILE", requires = "gitea_url")]
     gitea_token_file: Option<PathBuf>,
+    /// Default repository for standalone Gitea issue creation.
+    #[arg(long, env = "GITEA_DEFAULT_PROJECT", requires = "gitea_url")]
+    gitea_default_project: Option<String>,
     #[arg(long, env = "PLANE_URL", requires = "plane_token_file")]
     plane_url: Option<Url>,
     #[arg(long, env = "PLANE_TOKEN_FILE", requires = "plane_url")]
@@ -53,6 +56,9 @@ pub(crate) struct McpConnection {
     /// Default Plane workspace slug for searching work items.
     #[arg(long, env = "PLANE_WORKSPACE", requires = "plane_url")]
     plane_workspace: Option<String>,
+    /// Default project for standalone Plane issue creation.
+    #[arg(long, env = "PLANE_DEFAULT_PROJECT", requires = "plane_url")]
+    plane_default_project: Option<String>,
 }
 
 impl McpConnection {
@@ -80,6 +86,8 @@ impl McpConnection {
             gitea,
             plane,
             trackers,
+            gitea_default_project: self.gitea_default_project,
+            plane_default_project: self.plane_default_project,
         })
     }
 }
@@ -88,6 +96,8 @@ pub(crate) struct Connections {
     pub gitea: Option<Gitea>,
     pub plane: Option<plane::Plane>,
     pub trackers: crate::tracker::Backends,
+    pub gitea_default_project: Option<String>,
+    pub plane_default_project: Option<String>,
 }
 
 #[derive(Args, Default)]
@@ -152,6 +162,14 @@ pub(crate) enum Mode {
         /// Validate configuration and token files without sending network requests.
         #[arg(long)]
         offline: bool,
+    },
+    /// Fetch a read-only snapshot of open work assigned to you or in one project.
+    #[command(args_override_self = true)]
+    Pull {
+        #[command(flatten)]
+        connection: Box<McpConnection>,
+        #[command(flatten)]
+        filter: crate::pull::Filter,
     },
     /// Start the local MCP server using configured task platforms.
     #[command(args_override_self = true)]

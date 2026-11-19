@@ -1,12 +1,129 @@
 use anyhow::{Context as _, ensure};
+use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::plan::{Plan, Task};
 use super::{CHECKPOINT_MARKER, Comment, Gitea, Issue, IssueRef, User, append, repository};
-use crate::validation::simple_text;
+use crate::{issue, validation::simple_text};
 
 impl Gitea {
+    pub(super) async fn create_issue(
+        &self,
+        project: &str,
+        input: &issue::Create,
+    ) -> anyhow::Result<Value> {
+        let (owner, repo) = repository(project)?;
+        let mut body = json!({"title":input.title});
+        if let Some(description) = &input.description {
+            body["body"] = json!(description);
+        }
+        let mut issue: Issue = self
+            .post(
+                self.repo_api(owner, repo, &["issues"]),
+                &body,
+                "create unassigned issue",
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "could not confirm creation in {project}; check the repository before retrying"
+                )
+            })?;
+        ensure!(
+            issue.number > 0 && issue.pull_request.is_none(),
+            "expected a created Gitea issue"
+        );
+        let reference = IssueRef {
+            owner: owner.to_owned(),
+            repo: repo.to_owned(),
+            number: issue.number,
+        };
+        issue.html_url = self.issue_link(&reference);
+        ensure!(
+            issue.assignees.as_deref().unwrap_or_default().is_empty(),
+            "Gitea created {} with an assignee; check the repository's assignment rules",
+            issue.html_url
+        );
+        Ok(json!({"url":issue.html_url,"issue":issue}))
+    }
+
+    pub(super) async fn assign_issue(&self, input: issue::Assign) -> anyhow::Result<Value> {
+        let reference = self.issue_ref(&input.issue)?;
+        let issue = self.read_issue(&reference).await?;
+        let matches = |user: &User| user.login.eq_ignore_ascii_case(&input.assignee);
+        let assignees = issue.assignees.as_deref().unwrap_or_default();
+        if assignees.iter().any(matches) {
+            return Ok(json!({"url":issue.html_url,"issue":issue}));
+        }
+        ensure!(
+            assignees.is_empty(),
+            "{} already has an assignee",
+            issue.html_url
+        );
+        ensure!(
+            self.assignees(&reference.owner, &reference.repo)
+                .await?
+                .iter()
+                .any(matches),
+            "the specified user is not assignable in {}/{}",
+            reference.owner,
+            reference.repo
+        );
+        let body = json!({"assignees":[input.assignee]});
+        let request = self
+            .http
+            .request(Method::PATCH, self.issue_api(&reference))
+            .json(&body);
+        let mut updated: Issue = self.request(request, "assign issue").await?;
+        ensure!(
+            updated.id == issue.id
+                && updated.number == reference.number
+                && updated.pull_request.is_none()
+                && updated
+                    .assignees
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .any(matches),
+            "Gitea did not confirm the requested assignee on {}",
+            issue.html_url
+        );
+        updated.html_url = issue.html_url;
+        Ok(json!({"url":updated.html_url,"issue":updated}))
+    }
+
+    pub(super) async fn edit_issue(&self, mut input: issue::Edit) -> anyhow::Result<Value> {
+        let reference = self.issue_ref(&input.issue)?;
+        let issue = self.read_issue(&reference).await?;
+        input.preserve_plan_marker(&issue.body);
+        let body = input.fields("title", "body", |text| json!(text));
+        let request = self.http.patch(self.issue_api(&reference)).json(&body);
+        let mut updated: Issue = self.request(request, "edit issue").await.with_context(|| {
+            format!(
+                "could not confirm edit of {}; check the issue",
+                issue.html_url
+            )
+        })?;
+        ensure!(
+            updated.id == issue.id
+                && updated.number == reference.number
+                && updated.pull_request.is_none()
+                && input
+                    .title
+                    .as_ref()
+                    .is_none_or(|title| title == &updated.title)
+                && input
+                    .description
+                    .as_ref()
+                    .is_none_or(|description| description == &updated.body),
+            "Gitea did not confirm the requested edit on {}",
+            issue.html_url
+        );
+        updated.html_url = issue.html_url;
+        Ok(json!({"url":updated.html_url,"issue":updated}))
+    }
+
     pub async fn apply(&self, plan: &Plan) -> anyhow::Result<Value> {
         let parent = self.issue_ref(&plan.parent)?;
         self.read_issue(&parent).await?;
@@ -46,7 +163,7 @@ impl Gitea {
             .query_pairs_mut()
             .append_pair("state", "all")
             .append_pair("type", "issues")
-            .append_pair("q", &task.title);
+            .append_pair("q", &plan.id);
         let issues = self
             .scan::<Issue>(search, "find previously created issue")
             .await?;

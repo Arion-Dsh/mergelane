@@ -28,7 +28,7 @@ def smoke(binary, root, version):
             env.pop(key)
     env["XDG_CONFIG_HOME"] = str(root / "unused-config")
     assert run(binary, ["--version"], env).strip() == f"mergelane {version}"
-    for command in ("init", "doctor", "mcp"):
+    for command in ("init", "doctor", "mcp", "pull"):
         run(binary, [command, "--help"], env)
     token = root / "fake-token"
     token.touch(mode=0o600)
@@ -56,7 +56,7 @@ def smoke(binary, root, version):
     names = {tool["name"] for tool in responses[2]["result"]["tools"]}
     assert names == {
         "github_search_issues", "github_issue_context", "github_preview_plan",
-        "mergelane_task_lease",
+        "mergelane_pull_tasks", "mergelane_task_lease",
     }
     print(f"CLI, init, offline doctor and read-only MCP passed: {binary}")
 

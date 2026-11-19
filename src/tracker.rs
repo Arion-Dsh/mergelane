@@ -8,7 +8,10 @@ use anyhow::{Context as _, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::mcp::{ApplyArgs, ContextArgs, object, tool};
+use crate::{
+    issue,
+    mcp::{ApplyArgs, ContextArgs, object, tool},
+};
 pub(crate) use http::{Http, append, instance_path, project_path};
 pub(crate) use plan::{Draft, Plan, Task};
 
@@ -47,6 +50,8 @@ pub(crate) struct Search {
     #[serde(default = "first_page")]
     pub page: u32,
     pub cursor: Option<String>,
+    #[serde(skip)]
+    pub open_only: bool,
 }
 
 fn first_page() -> u32 {
@@ -93,6 +98,13 @@ pub(crate) trait Api {
     async fn blockers(&self, issue: &Issue) -> anyhow::Result<Vec<String>>;
     async fn find_task(&self, project: &str, marker: &str) -> anyhow::Result<Option<Issue>>;
     async fn create(&self, task: &Task, body: &str, marker: &str) -> anyhow::Result<Issue>;
+    async fn create_unassigned(
+        &self,
+        project: &str,
+        input: &issue::Create,
+    ) -> anyhow::Result<Issue>;
+    async fn assign(&self, issue: &Issue, assignee: &str) -> anyhow::Result<Issue>;
+    async fn edit(&self, issue: &Issue, input: &issue::Edit) -> anyhow::Result<Issue>;
     async fn block(&self, issue: &Issue, blocker: &Issue) -> anyhow::Result<()>;
     async fn comment(&self, issue: &Issue, body: &str) -> anyhow::Result<()>;
 }
@@ -186,10 +198,16 @@ impl Backends {
 pub(crate) struct Session<A> {
     api: A,
     write: bool,
+    default_project: Option<String>,
     pending: Option<Plan>,
 }
 
 impl<A: Api> Session<A> {
+    pub async fn search(&self, input: Search) -> anyhow::Result<Value> {
+        input.validate()?;
+        self.api.search(input).await
+    }
+
     async fn lease_key(&self, reference: &str) -> anyhow::Result<crate::lease::TaskKey> {
         let issue = self.api.issue(reference).await?;
         crate::lease::TaskKey::new(self.api.name(), self.api.instance(), &issue.id)
@@ -203,10 +221,11 @@ impl<A: Api> Session<A> {
         self.api.check_connection().await
     }
 
-    pub fn new(api: A, write: bool) -> Self {
+    pub fn new(api: A, write: bool, default_project: Option<String>) -> Self {
         Self {
             api,
             write,
+            default_project,
             pending: None,
         }
     }
@@ -244,6 +263,18 @@ impl<A: Api> Session<A> {
             ),
         ];
         if self.write {
+            let (project, assignee) = match prefix {
+                "github" => (
+                    "Repository as owner/repo.",
+                    "GitHub login from issue_context.",
+                ),
+                "gitlab" => (
+                    "Namespaced GitLab project path.",
+                    "Numeric GitLab member ID as a string from issue_context.",
+                ),
+                _ => ("Jira project key.", "Jira accountId from issue_context."),
+            };
+            tools.extend(issue::tools(prefix, project, assignee));
             tools.extend([
                 tool(&format!("{prefix}_apply_plan"), "Publish the latest confirmed preview: create assigned tasks, native blockers and a parent summary. Partial failure can leave remote tasks; inspect and retry the unchanged plan with one publisher.",
                     object(json!({"plan_id":text,"confirmed":{"type":"boolean"}}), &["plan_id","confirmed"]), false),
@@ -261,11 +292,7 @@ impl<A: Api> Session<A> {
             "tool belongs to a different backend"
         );
         match operation {
-            "search_issues" => {
-                let input: Search = serde_json::from_value(args)?;
-                input.validate()?;
-                self.api.search(input).await
-            }
+            "search_issues" => self.search(serde_json::from_value(args)?).await,
             "issue_context" => {
                 let args: ContextArgs = serde_json::from_value(args)?;
                 let issue = self.api.issue(&args.issue).await?;
@@ -304,6 +331,19 @@ impl<A: Api> Session<A> {
             }
             "checkpoint" if self.write => {
                 write::checkpoint(&self.api, serde_json::from_value(args)?).await
+            }
+            "create_issue" if self.write => {
+                let input = issue::Create::parse(args)?;
+                let project = self
+                    .api
+                    .project(input.project(self.default_project.as_deref())?)?;
+                write::create_issue(&self.api, &project, &input).await
+            }
+            "assign_issue" if self.write => {
+                write::assign_issue(&self.api, issue::Assign::parse(args)?).await
+            }
+            "edit_issue" if self.write => {
+                write::edit_issue(&self.api, issue::Edit::parse(args)?).await
             }
             _ => anyhow::bail!("unknown or disabled tool"),
         }

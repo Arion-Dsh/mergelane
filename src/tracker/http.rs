@@ -90,6 +90,14 @@ impl Http {
         self.send(Method::POST, path, &[], Some(body)).await
     }
 
+    pub async fn put(&self, path: &[&str], body: &Value) -> anyhow::Result<Value> {
+        self.send(Method::PUT, path, &[], Some(body)).await
+    }
+
+    pub async fn patch(&self, path: &[&str], body: &Value) -> anyhow::Result<Value> {
+        self.send(Method::PATCH, path, &[], Some(body)).await
+    }
+
     async fn send(
         &self,
         method: Method,

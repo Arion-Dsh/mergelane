@@ -16,9 +16,9 @@ args = ["mcp", "--gitlab-url", "https://gitlab.com", "--gitlab-token-file", "/ab
 
 ## 工具与标识
 
-提供 `gitlab_search_issues`、`gitlab_issue_context`、`gitlab_preview_plan`；写入时增加 `gitlab_apply_plan`、`gitlab_checkpoint`。
+提供 `gitlab_search_issues`、`gitlab_issue_context`、`gitlab_preview_plan`。启用写入时还提供 `gitlab_create_issue`、`gitlab_assign_issue`、`gitlab_edit_issue`、`gitlab_apply_plan`、`gitlab_checkpoint`。
 
-工单可用完整的 `/-/issues/42` 网页链接或 `group/project#42`，项目支持 `group/subgroup/project`。任务的 `assignee` 使用上下文返回的**数字用户 ID 的字符串**；搜索支持 ID 或用户名。每项任务指派一人。
+工单支持完整网页链接（`/-/issues/42` 或 `/-/work_items/42`）或 `group/project#42`。项目支持 `group/subgroup/project`。任务的 `assignee` 使用上下文返回的**数字用户 ID 的字符串**，搜索支持 ID 或用户名。每项任务指派一人。
 
 ```json
 {"project":"group/subgroup/project","query":"export","assignee":"alice","page":1}

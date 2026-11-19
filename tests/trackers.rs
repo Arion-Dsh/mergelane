@@ -36,6 +36,114 @@ async fn initialize(mcp: &mut Mcp) {
 }
 
 #[tokio::test]
+async fn pull_loads_saved_accounts_and_reports_pagination_limits() {
+    let github = Server::start(Platform::GitHub).await;
+    let gitlab = Server::start(Platform::GitLab).await;
+    let jira = Server::start(Platform::Jira).await;
+    let home = TempDir::new().unwrap();
+    token(home.path(), "token", "fake-token");
+    let config = home.path().join("profile.json");
+    std::fs::write(
+        &config,
+        json!({"version":1,"backends":{
+            "github":{"url":github.base,"token_file":"token","write":true},
+            "gitlab":{"url":gitlab.base,"token_file":"token"},
+            "jira":{"url":jira.base,"token_file":"token","email":"test@example.com"}
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let pull = |flags: &[&str]| {
+        let mut command = support::command();
+        command.arg("--config").arg(&config).arg("pull").args(flags);
+        command
+    };
+
+    let output = pull(&[]).output().await.unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["scope"], "assigned_to_me");
+    assert_eq!(report["complete"], true);
+    let sources = report["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 3);
+    for source in sources {
+        let items = source["items"].as_array().unwrap();
+        assert_eq!(
+            items.len(),
+            1,
+            "duplicate issues across pages should collapse"
+        );
+        assert_eq!(items[0]["title"], "Billing export");
+        assert!(items[0].get("description").is_none());
+    }
+    assert_eq!(github.fixture.lock().unwrap().requests, 4);
+    assert_eq!(jira.fixture.lock().unwrap().requests, 2);
+
+    let mut command = support::command();
+    command
+        .arg("--config")
+        .arg(&config)
+        .args(["mcp", "--read-only"]);
+    let mut mcp = Mcp::start(command);
+    initialize(&mut mcp).await;
+    let tools = mcp.request("tools/list", json!({})).await;
+    let pull_tool = tools["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "mergelane_pull_tasks")
+        .unwrap();
+    assert_eq!(pull_tool["annotations"]["readOnlyHint"], true);
+    let via_mcp = tool_result(mcp.tool("mergelane_pull_tasks", json!({})).await);
+    assert_eq!(via_mcp["scope"], report["scope"]);
+    assert_eq!(via_mcp["complete"], report["complete"]);
+    assert_eq!(via_mcp["sources"], report["sources"]);
+
+    let output = pull(&[
+        "--backend",
+        "github",
+        "--project",
+        "team/web",
+        "--max-pages",
+        "1",
+    ])
+    .output()
+    .await
+    .unwrap();
+    assert!(!output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["scope"], "project");
+    assert_eq!(report["complete"], false);
+    assert_eq!(report["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(report["sources"][0]["truncated"], true);
+    assert_eq!(report["sources"][0]["items"][0]["title"], "Billing export");
+    let via_mcp = tool_result(
+        mcp.tool(
+            "mergelane_pull_tasks",
+            json!({"backend":"github","project":"team/web","max_pages":1}),
+        )
+        .await,
+    );
+    assert_eq!(via_mcp["scope"], report["scope"]);
+    assert_eq!(via_mcp["project"], report["project"]);
+    assert_eq!(via_mcp["complete"], report["complete"]);
+    assert_eq!(via_mcp["sources"], report["sources"]);
+    for invalid in [json!({"project":"team/web"}), json!({"max_pages":35})] {
+        assert_eq!(
+            mcp.tool("mergelane_pull_tasks", invalid).await["isError"],
+            true
+        );
+    }
+    for server in [&github, &gitlab, &jira] {
+        assert_eq!(server.fixture.lock().unwrap().counts(), (0, 0, 0));
+    }
+}
+
+#[tokio::test]
 async fn local_lease_serializes_processes_and_expires_after_crash() {
     let server = Server::start(Platform::GitHub).await;
     let home = TempDir::new().unwrap();
@@ -173,7 +281,7 @@ async fn workflow(platform: Platform) {
             .as_array()
             .unwrap()
             .len(),
-        9
+        13
     );
     let parent = platform.key(42);
     let context = tool_result(
@@ -254,7 +362,7 @@ async fn workflow(platform: Platform) {
             .as_array()
             .unwrap()
             .len(),
-        7
+        8
     );
     assert_eq!(
         member
@@ -328,6 +436,172 @@ async fn jira_shares_tasks_recovers_partial_writes_and_checks_dependencies() {
 }
 
 #[tokio::test]
+async fn unassigned_issues_can_be_created_from_a_saved_project_and_assigned_in_another_session() {
+    for platform in [Platform::GitHub, Platform::GitLab, Platform::Jira] {
+        let server = Server::start(platform).await;
+        let dir = TempDir::new().unwrap();
+        let creator_token = token(dir.path(), "creator", "fake-token");
+        let manager_token = token(dir.path(), "manager", "manager-token");
+        let profile = dir.path().join("profile.json");
+        let backend = platform.name();
+        let mut init = support::command();
+        init.args(["--config"])
+            .arg(&profile)
+            .args([
+                "init",
+                "--non-interactive",
+                "--backend",
+                backend,
+                "--url",
+                &server.base,
+                "--default-project",
+                platform.project(),
+                "--write",
+                "--token-file",
+            ])
+            .arg(&creator_token);
+        if matches!(platform, Platform::Jira) {
+            init.args(["--email", "test@example.com"]);
+        }
+        let output = init.output().await.unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let mut command = support::command();
+        command.arg("mcp").arg("--config").arg(&profile);
+        let mut creator = Mcp::start(command);
+        initialize(&mut creator).await;
+        let create = format!("{backend}_create_issue");
+        let assign = format!("{backend}_assign_issue");
+        let edit = format!("{backend}_edit_issue");
+        let title = "Triage a billing request";
+        assert_eq!(
+            creator
+                .tool(&create, json!({"title":title,"confirmed":false}))
+                .await["isError"],
+            true
+        );
+        assert_eq!(server.fixture.lock().unwrap().requests, 0);
+        let created = tool_result(
+            creator
+                .tool(&create, json!({"title":title,"confirmed":true}))
+                .await,
+        );
+        assert_eq!(created["issue"]["title"], title);
+        assert_eq!(created["issue"]["description"], "");
+        assert_eq!(created["issue"]["assignees"], json!([]));
+        let url = created["url"].as_str().unwrap();
+        drop(creator);
+
+        let mut manager = start(platform, &server, &manager_token, true);
+        initialize(&mut manager).await;
+        let owner = platform.assignee(true);
+        let browser_url = if matches!(platform, Platform::GitLab) {
+            url.replace("/-/issues/", "/-/work_items/")
+        } else {
+            url.to_owned()
+        };
+        for reference in [browser_url.as_str(), url] {
+            let assigned = tool_result(
+                manager
+                    .tool(
+                        &assign,
+                        json!({
+                            "issue":reference, "assignee":owner, "confirmed":true
+                        }),
+                    )
+                    .await,
+            );
+            assert_eq!(assigned["url"], url);
+            assert_eq!(assigned["issue"]["assignees"][0]["id"], owner);
+        }
+        let conflict = manager
+            .tool(
+                &assign,
+                json!({
+                    "issue":url, "assignee":platform.assignee(false), "confirmed":true
+                }),
+            )
+            .await;
+        assert_eq!(conflict["isError"], true);
+        assert!(
+            conflict["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("already has an assignee")
+        );
+
+        let requests = server.fixture.lock().unwrap().requests;
+        for invalid in [
+            json!({"issue":url,"title":"Updated title","confirmed":false}),
+            json!({"issue":url,"confirmed":true}),
+            json!({"issue":url,"description":"mergelane:task:invalid:0","confirmed":true}),
+        ] {
+            assert_eq!(manager.tool(&edit, invalid).await["isError"], true);
+        }
+        let mut reader = start(platform, &server, &manager_token, false);
+        initialize(&mut reader).await;
+        assert_eq!(
+            reader
+                .tool(
+                    &edit,
+                    json!({"issue":url,"title":"Updated title","confirmed":true})
+                )
+                .await["isError"],
+            true
+        );
+        assert_eq!(server.fixture.lock().unwrap().requests, requests);
+
+        let description = "First line\n\nSecond <line>";
+        let edited = tool_result(
+            manager
+                .tool(
+                    &edit,
+                    json!({
+                        "issue":browser_url,"description":description,"confirmed":true
+                    }),
+                )
+                .await,
+        );
+        assert_eq!(edited["url"], url);
+        assert_eq!(edited["issue"]["title"], title);
+        assert_eq!(edited["issue"]["description"], description);
+        assert_eq!(edited["issue"]["assignees"][0]["id"], owner);
+
+        let renamed = tool_result(
+            manager
+                .tool(
+                    &edit,
+                    json!({
+                        "issue":url,"title":"Updated title","confirmed":true
+                    }),
+                )
+                .await,
+        );
+        assert_eq!(renamed["issue"]["title"], "Updated title");
+        assert_eq!(renamed["issue"]["description"], description);
+
+        let cleared = tool_result(
+            manager
+                .tool(
+                    &edit,
+                    json!({
+                        "issue":url,"description":"","confirmed":true
+                    }),
+                )
+                .await,
+        );
+        assert_eq!(cleared["issue"]["description"], "");
+        assert_eq!(cleared["issue"]["title"], "Updated title");
+        assert_eq!(cleared["issue"]["assignees"][0]["id"], owner);
+        assert_eq!(server.fixture.lock().unwrap().counts(), (1, 0, 0));
+    }
+}
+
+#[tokio::test]
 async fn all_five_backends_keep_tool_names_and_write_permissions_separate() {
     let dir = TempDir::new().unwrap();
     let token = token(dir.path(), "token", "fake-token");
@@ -352,17 +626,20 @@ async fn all_five_backends_keep_tool_names_and_write_permissions_separate() {
     initialize(&mut client).await;
     let tools = client.request("tools/list", json!({})).await;
     let tools = tools["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 23);
+    assert_eq!(tools.len(), 30);
     let names = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(names.len(), tools.len());
     for backend in ["gitea", "plane", "github", "gitlab", "jira"] {
-        assert_eq!(
-            names.contains(format!("{backend}_apply_plan").as_str()),
-            matches!(backend, "github" | "jira")
-        );
+        for operation in ["apply_plan", "create_issue", "assign_issue", "edit_issue"] {
+            let name = format!("{backend}_{operation}");
+            assert_eq!(
+                names.contains(name.as_str()),
+                matches!(backend, "github" | "jira")
+            );
+        }
     }
     client.child.kill().await.unwrap();
 }
@@ -449,7 +726,7 @@ async fn setup_preserves_other_backends_and_doctor_only_reads_authenticated_acco
             .as_array()
             .unwrap()
             .len(),
-        10
+        11
     );
     let context = tool_result(
         client
@@ -505,7 +782,7 @@ async fn setup_preserves_other_backends_and_doctor_only_reads_authenticated_acco
             .as_array()
             .unwrap()
             .len(),
-        19
+        29
     );
     configured.child.kill().await.unwrap();
     let output = support::command()
@@ -578,7 +855,7 @@ async fn invalid_settings_fail_without_overwriting_and_help_can_bypass_them() {
             .as_array()
             .unwrap()
             .len(),
-        7
+        8
     );
     client.child.kill().await.unwrap();
 }

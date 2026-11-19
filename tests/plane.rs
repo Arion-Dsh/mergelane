@@ -24,6 +24,7 @@ const BOB: &str = "44444444-4444-4444-8444-444444444444";
 const OLD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const NEW: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const STARTED: &str = "77777777-7777-4777-8777-777777777777";
+const DONE: &str = "88888888-8888-4888-8888-888888888888";
 
 // Test requests share fixture state across independent MCP child processes.
 #[derive(Default)]
@@ -36,6 +37,7 @@ struct Fixture {
     fail_relation_once: bool,
     changed: bool,
     repeat_cursor: bool,
+    default_assignee: Option<&'static str>,
 }
 
 type Data = Arc<Mutex<Fixture>>;
@@ -45,8 +47,7 @@ type Reply = Result<Json<Value>, StatusCode>;
 fn authorize(headers: &HeaderMap) -> Result<(), StatusCode> {
     (headers
         .get("x-api-key")
-        .and_then(|header| header.to_str().ok())
-        == Some("fake-plane-key")
+        .is_some_and(|value| value == "fake-plane-key" || value == "fake-manager-key")
         && !headers.contains_key("authorization"))
     .then_some(())
     .ok_or(StatusCode::UNAUTHORIZED)
@@ -81,9 +82,10 @@ async fn read(
                 .map(Json)
                 .ok_or(StatusCode::NOT_FOUND)
         }
-        ["states"] => Ok(Json(
-            json!([{"id":STARTED,"name":"In progress","group":"started"}]),
-        )),
+        ["states"] => Ok(Json(json!([
+            {"id":STARTED,"name":"In progress","group":"started"},
+            {"id":DONE,"name":"Done","group":"completed"}
+        ]))),
         ["work-items", id] => {
             if *id == PARENT {
                 return Ok(Json(
@@ -138,7 +140,11 @@ async fn write(
             item["project"] = json!(PROJECT);
             item["state"] = json!(STARTED);
             item["sequence_id"] = json!(data.items.len() + 2);
-            assert_eq!(item["parent"], PARENT);
+            if item["external_id"].is_string() {
+                assert_eq!(item["parent"], PARENT);
+            } else {
+                assert_eq!(item["assignees"], json!([]));
+            }
             data.items.push(item.clone());
             if std::mem::take(&mut data.fail_create_once) {
                 // Model an uncertain response after the server has committed the write.
@@ -178,6 +184,37 @@ async fn write(
     }
 }
 
+async fn update(
+    State(data): State<Data>,
+    Path((project, tail)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Reply {
+    assert_eq!(headers["x-api-key"], "fake-manager-key");
+    assert_eq!(project, PROJECT);
+    let id = tail
+        .strip_prefix("work-items/")
+        .unwrap()
+        .trim_end_matches('/');
+    let mut data = data.lock().unwrap();
+    let item = data
+        .items
+        .iter_mut()
+        .find(|item| item["id"] == id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if body.get("assignees").is_some() {
+        assert_eq!(body, json!({"assignees":[BOB]}));
+        assert_eq!(item["assignees"], json!([]));
+        item["assignees"] = body["assignees"].clone();
+    } else {
+        for (field, value) in body.as_object().unwrap() {
+            assert!(matches!(field.as_str(), "name" | "description_html"));
+            item[field] = value.clone();
+        }
+    }
+    Ok(Json(item.clone()))
+}
+
 async fn contents(State(data): State<Data>, Query(query): Params, headers: HeaderMap) -> Reply {
     assert!(!headers.contains_key("x-api-key"));
     assert_eq!(
@@ -192,10 +229,13 @@ async fn contents(State(data): State<Data>, Query(query): Params, headers: Heade
     ))
 }
 
-async fn projects(headers: HeaderMap) -> Reply {
+async fn projects(State(data): State<Data>, headers: HeaderMap) -> Reply {
     authorize(&headers)?;
+    let default_assignee = data.lock().unwrap().default_assignee;
     Ok(Json(page(
-        vec![json!({"id":PROJECT,"name":"Billing","identifier":"BILL"})],
+        vec![
+            json!({"id":PROJECT,"name":"Billing","identifier":"BILL","default_assignee":default_assignee}),
+        ],
         false,
     )))
 }
@@ -264,7 +304,12 @@ fn start_mcp(
         ])
         .arg(token);
     }
-    cmd.args(["--plane-workspace", "team"]);
+    cmd.args([
+        "--plane-workspace",
+        "team",
+        "--plane-default-project",
+        "BILL",
+    ]);
     if write {
         cmd.arg("--plane-write");
     }
@@ -298,7 +343,7 @@ async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracki
         .route("/plane/api/v1/users/me/", get(identity))
         .route(
             "/plane/api/v1/workspaces/team/projects/{project}/{*tail}",
-            get(read).post(write),
+            get(read).post(write).patch(update),
         )
         .route(
             "/gitea/api/v1/repos/team/specs/contents/schema.yaml",
@@ -335,7 +380,7 @@ async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracki
     lead.request("initialize", json!({"protocolVersion":"2025-06-18"}))
         .await;
     let tools = lead.request("tools/list", json!({})).await;
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 9);
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 13);
     let context = result(
         lead.tool("plane_issue_context", json!({"issue":parent}))
             .await,
@@ -471,12 +516,96 @@ async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracki
             .await["isError"],
         true
     );
+    fixture.lock().unwrap().items[1]["state"] = json!(DONE);
+    let snapshot = support::command()
+        .args([
+            "pull",
+            "--plane-url",
+            &format!("{base}/plane"),
+            "--plane-token-file",
+        ])
+        .arg(&plane_token)
+        .args([
+            "--plane-workspace",
+            "team",
+            "--backend",
+            "plane",
+            "--project",
+            "BILL",
+        ])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        snapshot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&snapshot.stderr)
+    );
+    let snapshot: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    let items = snapshot["sources"][0]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Implement");
     fixture.lock().unwrap().repeat_cursor = true;
     assert_eq!(
         member
             .tool("plane_issue_context", json!({"issue":parent}))
             .await["isError"],
         true
+    );
+
+    let draft = json!({
+        "title":"Triage export", "description":"Inspect <export>", "confirmed":true
+    });
+    fixture.lock().unwrap().default_assignee = Some(ALICE);
+    let rejected = lead.tool("plane_create_issue", draft.clone()).await;
+    assert_eq!(rejected["isError"], true);
+    assert!(
+        rejected["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("default assignee")
+    );
+    assert_eq!(fixture.lock().unwrap().items.len(), 2);
+    fixture.lock().unwrap().default_assignee = None;
+
+    let created = result(lead.tool("plane_create_issue", draft).await);
+    assert_eq!(created["issue"]["assignees"], json!([]));
+    assert_eq!(
+        created["issue"]["description_html"],
+        "<p>Inspect &lt;export&gt;</p>"
+    );
+    let url = created["url"].as_str().unwrap();
+    let manager_token = token(dir.path(), "manager-token", "fake-manager-key");
+    let mut manager = start_mcp(&base, &manager_token, None, true);
+    manager
+        .request("initialize", json!({"protocolVersion":"2025-06-18"}))
+        .await;
+    let assigned = result(
+        manager
+            .tool(
+                "plane_assign_issue",
+                json!({
+                    "issue":url, "assignee":BOB, "confirmed":true
+                }),
+            )
+            .await,
+    );
+    assert_eq!(assigned["url"], url);
+    assert_eq!(assigned["issue"]["assignees"], json!([BOB]));
+    let edited = result(
+        manager
+            .tool(
+                "plane_edit_issue",
+                json!({"issue":url,"description":"Line one\n<script>&","confirmed":true}),
+            )
+            .await,
+    );
+    assert_eq!(edited["url"], url);
+    assert_eq!(edited["issue"]["name"], "Triage export");
+    assert_eq!(edited["issue"]["assignees"], json!([BOB]));
+    assert_eq!(
+        edited["issue"]["description_html"],
+        "<p>Line one<br>&lt;script&gt;&amp;</p>"
     );
     server.abort();
 }

@@ -3,13 +3,112 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 use super::{
     ApiError, Comment, Plane, SOURCE, WorkItem, WorkItemRef, plan::Plan, references::html,
 };
-use crate::validation::simple_text;
+use crate::{issue, validation::simple_text};
 
 impl Plane {
+    pub(super) async fn create_issue(
+        &self,
+        project: &str,
+        input: &issue::Create,
+    ) -> anyhow::Result<Value> {
+        let workspace = self.default_workspace.as_deref().context(
+            "configure a Plane workspace with --plane-workspace before creating an issue",
+        )?;
+        let project = self.resolve_project(workspace, project).await?;
+        ensure!(
+            project.default_assignee.is_none(),
+            "Plane project {} has a default assignee; remove the project default to create an unassigned issue",
+            project.identifier
+        );
+        let mut body = json!({"name":input.title,"assignees":[]});
+        if let Some(description) = &input.description {
+            body["description_html"] = json!(format!("<p>{}</p>", html(description)));
+        }
+        let item: WorkItem = self
+            .post(
+                self.project_api(workspace, project.id, &["work-items"]),
+                &body,
+                "create unassigned work item",
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "could not confirm creation in {}; check the project before retrying",
+                    project.identifier
+                )
+            })?;
+        ensure!(
+            item.project == project.id && item.sequence_id > 0,
+            "Plane returned a different work item"
+        );
+        let url = self.browse_link(workspace, &project.identifier, item.sequence_id);
+        ensure!(
+            item.assignees.is_empty(),
+            "Plane created {url} with an assignee; check the project's assignment rules"
+        );
+        Ok(json!({"url":url,"issue":item}))
+    }
+
+    pub(super) async fn assign_issue(&self, input: issue::Assign) -> anyhow::Result<Value> {
+        let assignee = Uuid::parse_str(&input.assignee).context("provide a Plane member UUID")?;
+        let reference = self.reference(&input.issue).await?;
+        let issue = self.item(&reference).await?;
+        let url = self.item_link(&reference, &issue).await?;
+        if issue.assignees.contains(&assignee) {
+            return Ok(json!({"url":url,"issue":issue}));
+        }
+        ensure!(issue.assignees.is_empty(), "{url} already has an assignee");
+        ensure!(
+            self.members(&reference.workspace, reference.project)
+                .await?
+                .iter()
+                .any(|member| member.id == assignee),
+            "the specified user is not a member of the Plane project"
+        );
+        let request = self
+            .http
+            .patch(self.item_api(&reference, &[]))
+            .json(&json!({"assignees":[assignee]}));
+        let updated: WorkItem = self.request(request, "assign work item").await?;
+        ensure!(
+            updated.id == reference.item
+                && updated.project == reference.project
+                && updated.assignees.contains(&assignee),
+            "Plane did not confirm the requested assignee on {url}"
+        );
+        Ok(json!({"url":url,"issue":updated}))
+    }
+
+    pub(super) async fn edit_issue(&self, input: issue::Edit) -> anyhow::Result<Value> {
+        let reference = self.reference(&input.issue).await?;
+        let issue = self.item(&reference).await?;
+        let url = self.item_link(&reference, &issue).await?;
+        let body = input.fields("name", "description_html", |text| {
+            json!(format!("<p>{}</p>", html(text)))
+        });
+        let request = self.http.patch(self.item_api(&reference, &[])).json(&body);
+        let updated: WorkItem = self
+            .request(request, "edit work item")
+            .await
+            .with_context(|| format!("could not confirm edit of {url}; check the work item"))?;
+        ensure!(
+            updated.id == reference.item
+                && updated.project == reference.project
+                && updated.sequence_id == issue.sequence_id
+                && input
+                    .title
+                    .as_ref()
+                    .is_none_or(|title| title == &updated.name),
+            "Plane did not confirm the requested edit on {url}"
+        );
+        Ok(json!({"url":url,"issue":updated}))
+    }
+
     pub async fn apply(&self, plan: &Plan) -> anyhow::Result<Value> {
         self.item(&plan.reference).await?;
         // Check membership again before writing, including after a session has been idle.

@@ -4,7 +4,84 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{Api, Issue, Plan};
-use crate::validation::simple_text;
+use crate::{issue, validation::simple_text};
+
+pub(super) async fn create_issue(
+    api: &impl Api,
+    project: &str,
+    input: &issue::Create,
+) -> anyhow::Result<Value> {
+    let issue = api
+        .create_unassigned(project, input)
+        .await
+        .with_context(|| {
+            format!("could not confirm creation in {project}; check the project before retrying")
+        })?;
+    ensure!(
+        issue.project == project,
+        "the platform returned a created issue in a different project; inspect {}",
+        issue.url
+    );
+    ensure!(
+        issue.assignees.is_empty(),
+        "the platform created {} with an assignee; check the project's assignment rules",
+        issue.url
+    );
+    Ok(json!({"url":issue.url, "issue":issue}))
+}
+
+pub(super) async fn assign_issue(api: &impl Api, input: issue::Assign) -> anyhow::Result<Value> {
+    let issue = api.issue(&input.issue).await?;
+    let matches = |member: &super::Member| {
+        if api.name() == "github" {
+            member.id.eq_ignore_ascii_case(&input.assignee)
+        } else {
+            member.id == input.assignee
+        }
+    };
+    if issue.assignees.iter().any(&matches) {
+        return Ok(json!({"url":issue.url, "issue":issue}));
+    }
+    ensure!(
+        issue.assignees.is_empty(),
+        "{} already has an assignee",
+        issue.url
+    );
+    let updated = api
+        .assign(&issue, &input.assignee)
+        .await
+        .with_context(|| format!("could not confirm assignment of {}", issue.url))?;
+    ensure!(
+        updated.id == issue.id && updated.key == issue.key && updated.assignees.iter().any(matches),
+        "the platform did not confirm the requested assignee on {}",
+        issue.url
+    );
+    Ok(json!({"url":updated.url, "issue":updated}))
+}
+
+pub(super) async fn edit_issue(api: &impl Api, mut input: issue::Edit) -> anyhow::Result<Value> {
+    let issue = api.issue(&input.issue).await?;
+    input.preserve_plan_marker(&issue.description);
+    let updated = api
+        .edit(&issue, &input)
+        .await
+        .with_context(|| format!("could not confirm edit of {}; check the issue", issue.url))?;
+    ensure!(
+        updated.id == issue.id
+            && updated.key == issue.key
+            && updated.project == issue.project
+            && input
+                .title
+                .as_ref()
+                .is_none_or(|title| title == &updated.title)
+            && input.description.as_ref().is_none_or(|description| {
+                description.trim_end_matches('\n') == updated.description.trim_end_matches('\n')
+            }),
+        "the platform did not confirm the requested edit on {}",
+        issue.url
+    );
+    Ok(json!({"url":updated.url, "issue":updated}))
+}
 
 pub(super) async fn apply(api: &impl Api, plan: &Plan) -> anyhow::Result<Value> {
     api.issue(&plan.source.key).await?;

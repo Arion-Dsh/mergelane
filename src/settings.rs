@@ -69,6 +69,8 @@ pub(crate) struct BackendSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_id: Option<String>,
@@ -111,6 +113,7 @@ impl Settings {
             ]);
             for (field, value) in [
                 ("workspace", &settings.workspace),
+                ("default-project", &settings.default_project),
                 ("email", &settings.email),
                 ("cloud-id", &settings.cloud_id),
                 ("issue-type", &settings.issue_type),
@@ -156,6 +159,12 @@ impl BackendSettings {
         ensure!(
             backend == Backend::Plane || self.workspace.is_none(),
             "workspace is only supported for Plane"
+        );
+        ensure!(
+            self.default_project
+                .as_deref()
+                .is_none_or(|value| { crate::validation::simple_text(value, 250) }),
+            "default_project must be 1 to 250 single-line bytes"
         );
         let jira = backend == Backend::Jira;
         ensure!(

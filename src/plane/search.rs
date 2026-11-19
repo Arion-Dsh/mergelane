@@ -17,6 +17,8 @@ pub struct Search {
     mine: bool,
     #[serde(default = "default_limit")]
     limit: usize,
+    #[serde(skip)]
+    open_only: bool,
 }
 
 fn default_limit() -> usize {
@@ -28,6 +30,7 @@ pub(super) struct Project {
     pub id: Uuid,
     name: String,
     pub identifier: String,
+    pub default_assignee: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +47,35 @@ pub(super) struct WorkflowState {
 }
 
 impl Plane {
+    pub(super) async fn resolve_project(
+        &self,
+        workspace: &str,
+        selector: &str,
+    ) -> anyhow::Result<Project> {
+        let projects = self
+            .list(
+                self.workspace_api(workspace, &["projects"]),
+                "list workspace projects",
+            )
+            .await?;
+        select_projects(projects, Some(selector))?
+            .pop()
+            .context("no matching Plane project")
+    }
+
+    pub(crate) async fn pull_open(&self, project: Option<String>) -> anyhow::Result<Value> {
+        self.search(Search {
+            query: None,
+            workspace: None,
+            assignee: None,
+            mine: project.is_none(),
+            project,
+            limit: 50,
+            open_only: true,
+        })
+        .await
+    }
+
     pub async fn search(&self, input: Search) -> anyhow::Result<Value> {
         let workspace = input.workspace.as_ref().or(self.default_workspace.as_ref())
             .context("set --plane-workspace once in the MCP configuration, or provide the workspace slug for this search")?;
@@ -139,6 +171,12 @@ impl Plane {
                 continue;
             }
             let state = states.iter().find(|state| Some(state.id) == item.state);
+            if input.open_only
+                && state
+                    .is_some_and(|state| matches!(state.group.as_str(), "completed" | "cancelled"))
+            {
+                continue;
+            }
             matches.push(json!({
                 "title":item.name,"url":self.browse_link(workspace, &project.identifier, item.sequence_id),"project":project.name,
                 "project_identifier":project.identifier,"state_id":item.state,

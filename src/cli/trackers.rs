@@ -18,10 +18,16 @@ pub(super) struct TrackerConnection {
     github_url: Option<Url>,
     #[arg(long, env = "GITHUB_TOKEN_FILE", requires = "github_url")]
     github_token_file: Option<PathBuf>,
+    /// Default repository for standalone GitHub issue creation.
+    #[arg(long, env = "GITHUB_DEFAULT_PROJECT", requires = "github_url")]
+    github_default_project: Option<String>,
     #[arg(long, env = "GITLAB_URL", requires = "gitlab_token_file")]
     gitlab_url: Option<Url>,
     #[arg(long, env = "GITLAB_TOKEN_FILE", requires = "gitlab_url")]
     gitlab_token_file: Option<PathBuf>,
+    /// Default project for standalone GitLab issue creation.
+    #[arg(long, env = "GITLAB_DEFAULT_PROJECT", requires = "gitlab_url")]
+    gitlab_default_project: Option<String>,
     #[arg(long, env = "JIRA_URL", requires_all = ["jira_token_file", "jira_email"])]
     jira_url: Option<Url>,
     #[arg(long, env = "JIRA_TOKEN_FILE", requires = "jira_url")]
@@ -35,6 +41,9 @@ pub(super) struct TrackerConnection {
     jira_issue_type: Option<String>,
     #[arg(long, env = "JIRA_LINK_TYPE", requires = "jira_url")]
     jira_link_type: Option<String>,
+    /// Default project for standalone Jira issue creation.
+    #[arg(long, env = "JIRA_DEFAULT_PROJECT", requires = "jira_url")]
+    jira_default_project: Option<String>,
 }
 
 impl TrackerConnection {
@@ -43,6 +52,7 @@ impl TrackerConnection {
             (Some(url), Some(file)) => Some(Session::new(
                 GitHub::new(url, read_token(&file).await?)?,
                 writes.github_write,
+                self.github_default_project,
             )),
             (None, None) => None,
             _ => anyhow::bail!("configure both GITHUB_URL and GITHUB_TOKEN_FILE"),
@@ -51,6 +61,7 @@ impl TrackerConnection {
             (Some(url), Some(file)) => Some(Session::new(
                 GitLab::new(url, read_token(&file).await?)?,
                 writes.gitlab_write,
+                self.gitlab_default_project,
             )),
             (None, None) => None,
             _ => anyhow::bail!("configure both GITLAB_URL and GITLAB_TOKEN_FILE"),
@@ -68,6 +79,7 @@ impl TrackerConnection {
                     },
                 )?,
                 writes.jira_write,
+                self.jira_default_project,
             )),
             (None, None, None) => None,
             _ => anyhow::bail!("configure JIRA_URL, JIRA_TOKEN_FILE and JIRA_EMAIL together"),

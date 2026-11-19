@@ -6,10 +6,12 @@ mod doctor;
 mod gitea;
 mod github;
 mod gitlab;
+mod issue;
 mod jira;
 mod lease;
 mod mcp;
 mod plane;
+mod pull;
 mod settings;
 mod setup;
 mod tracker;
@@ -34,6 +36,9 @@ async fn main() -> anyhow::Result<()> {
             connection,
             offline,
         } => doctor::run(*connection, offline).await?,
+        Mode::Pull { connection, filter } => {
+            pull::run(connection.open(&Default::default()).await?, filter).await?;
+        }
         Mode::Mcp {
             connection,
             writes,

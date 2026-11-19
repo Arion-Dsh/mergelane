@@ -103,6 +103,7 @@ mod tests {
             url: url.to_owned(),
             token_file: "token".into(),
             workspace: None,
+            default_project: None,
             email: None,
             cloud_id: None,
             issue_type: None,

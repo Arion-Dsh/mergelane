@@ -41,11 +41,17 @@ async fn list(State(data): State<Data>, headers: HeaderMap, Query(query): Params
     if query.get("page").is_some_and(|page| page != "1") {
         return Ok(Json(json!([])));
     }
+    if query.get("state").is_some_and(|state| state == "open") {
+        assert!(!query.contains_key("assigned"));
+        return Ok(Json(json!(data.issues)));
+    }
     Ok(Json(json!(
         data.issues
             .iter()
-            .filter(|issue| Some(issue["title"].as_str().unwrap())
-                == query.get("q").map(String::as_str))
+            .filter(|issue| query.get("q").is_none_or(|query| {
+                issue["title"].as_str().unwrap().contains(query)
+                    || issue["body"].as_str().unwrap().contains(query)
+            }))
             .collect::<Vec<_>>()
     )))
 }
@@ -54,11 +60,45 @@ async fn create(State(data): State<Data>, headers: HeaderMap, Json(body): Json<V
     authorize(&headers)?;
     let mut data = data.lock().unwrap();
     let number = data.issues.len() as u64 + 43;
-    let issue = json!({"id":number,"number":number,"state":"open","title":body["title"],"body":body["body"],
+    let assignees: Vec<_> = body["assignees"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|login| json!({"login":login}))
+        .collect();
+    let issue = json!({"id":number,"number":number,"state":"open","title":body["title"],
+        "body":body["body"].as_str().unwrap_or_default(),
         "html_url":format!("{}/team/web/issues/{number}", data.base),
-        "assignees":[{"login":body["assignees"][0]}]});
+        "assignees":assignees});
     data.issues.push(issue.clone());
     Ok(Json(issue))
+}
+
+async fn update(
+    State(data): State<Data>,
+    Path(number): Path<u64>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Reply {
+    authorize(&headers)?;
+    let mut data = data.lock().unwrap();
+    let issue = data
+        .issues
+        .iter_mut()
+        .find(|issue| issue["number"] == number)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if body.get("assignees").is_some() {
+        assert_eq!(headers["authorization"], "token fake-manager-token");
+        assert_eq!(body, json!({"assignees":["bob"]}));
+        assert_eq!(issue["assignees"], json!([]));
+        issue["assignees"] = json!([{"login":"bob"}]);
+    } else {
+        for (field, value) in body.as_object().unwrap() {
+            assert!(matches!(field.as_str(), "title" | "body"));
+            issue[field] = value.clone();
+        }
+    }
+    Ok(Json(issue.clone()))
 }
 
 async fn search(State(data): State<Data>, headers: HeaderMap, Query(query): Params) -> Reply {
@@ -201,10 +241,9 @@ async fn identity(headers: HeaderMap) -> Reply {
 }
 
 fn authorize(headers: &HeaderMap) -> Result<(), StatusCode> {
-    (headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        == Some("token fake-gitea-token"))
+    (headers.get("authorization").is_some_and(|value| {
+        value == "token fake-gitea-token" || value == "token fake-manager-token"
+    }))
     .then_some(())
     .ok_or(StatusCode::UNAUTHORIZED)
 }
@@ -236,7 +275,10 @@ async fn gitea_only_mcp_plans_assigns_and_shares_versioned_context() {
         .route("/git/api/v1/user", get(identity))
         .route("/git/api/v1/repos/issues/search", get(search))
         .route("/git/api/v1/repos/team/web/issues", get(list).post(create))
-        .route("/git/api/v1/repos/team/web/issues/{number}", get(issue))
+        .route(
+            "/git/api/v1/repos/team/web/issues/{number}",
+            get(issue).patch(update),
+        )
         .route(
             "/git/api/v1/repos/team/web/issues/{number}/dependencies",
             get(list_blockers).post(link),
@@ -296,6 +338,24 @@ async fn gitea_only_mcp_plans_assigns_and_shares_versioned_context() {
         true
     );
     assert_eq!(fixture.lock().unwrap().issues.len(), 2);
+
+    let edited = data(
+        lead.tool(
+            "gitea_edit_issue",
+            json!({
+                "issue":"team/web#43","title":"Build export endpoint","description":"Updated scope",
+                "confirmed":true
+            }),
+        )
+        .await,
+    );
+    let plan_id = preview["id"].as_str().unwrap();
+    assert_eq!(edited["issue"]["title"], "Build export endpoint");
+    assert_eq!(
+        edited["issue"]["body"],
+        format!("<!-- mergelane:task:{plan_id}:1 -->\nUpdated scope")
+    );
+    assert_eq!(edited["issue"]["assignees"], json!([{"login":"alice"}]));
 
     // Re-preview the same plan after reconnecting. Recover the created issues and finish linking.
     lead.child.kill().await.unwrap();
@@ -362,7 +422,10 @@ async fn gitea_only_mcp_plans_assigns_and_shares_versioned_context() {
             .await,
     );
     assert_eq!(context["issue"]["assignees"][0]["login"], "bob");
-    assert_eq!(context["blocking_issues"][0]["title"], "Implement");
+    assert_eq!(
+        context["blocking_issues"][0]["title"],
+        "Build export endpoint"
+    );
     assert_eq!(context["dependencies"][0]["status"], "needs_review");
     assert!(
         context["activity"]["checkpoints"][0]["body"]
@@ -378,5 +441,46 @@ async fn gitea_only_mcp_plans_assigns_and_shares_versioned_context() {
         .await["isError"],
         true
     );
+    let snapshot = support::command()
+        .args(["pull", "--gitea-url", &base, "--gitea-token-file"])
+        .arg(&token)
+        .args(["--backend", "gitea", "--project", "team/web"])
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        snapshot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&snapshot.stderr)
+    );
+    let snapshot: Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    assert_eq!(snapshot["sources"][0]["items"].as_array().unwrap().len(), 2);
+
+    let created = data(
+        lead.tool(
+            "gitea_create_issue",
+            json!({
+                "project":"team/web", "title":"Triage export", "description":"Check billing data",
+                "confirmed":true
+            }),
+        )
+        .await,
+    );
+    assert_eq!(created["issue"]["assignees"], json!([]));
+    assert_eq!(created["issue"]["body"], "Check billing data");
+    let url = created["url"].as_str().unwrap();
+    let assign = json!({"issue":url,"assignee":"bob","confirmed":true});
+    assert_eq!(
+        bob.tool("gitea_assign_issue", assign.clone()).await["isError"],
+        true
+    );
+    let manager_token = support::token(dir.path(), "manager-token", "fake-manager-token");
+    let mut manager = start_mcp(&base, &manager_token, true);
+    manager
+        .request("initialize", json!({"protocolVersion":"2025-06-18"}))
+        .await;
+    let assigned = data(manager.tool("gitea_assign_issue", assign).await);
+    assert_eq!(assigned["url"], url);
+    assert_eq!(assigned["issue"]["assignees"], json!([{"login":"bob"}]));
     server.abort();
 }

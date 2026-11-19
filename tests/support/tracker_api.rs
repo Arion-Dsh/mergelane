@@ -60,7 +60,7 @@ struct Task {
     number: u64,
     title: String,
     body: String,
-    assignee: String,
+    assignee: Option<String>,
     label: String,
 }
 
@@ -97,7 +97,7 @@ impl Fixture {
             number: 42,
             title: "Billing export".to_owned(),
             body: "Shared requirement".to_owned(),
-            assignee: self.platform.assignee(false).to_owned(),
+            assignee: Some(self.platform.assignee(false).to_owned()),
             label: String::new(),
         };
         let task = if number == 42 {
@@ -109,16 +109,18 @@ impl Fixture {
         match self.platform {
             Platform::GitHub => {
                 json!({"id":1000+number,"number":number,"title":task.title,"body":task.body,"state":"open",
-                "html_url":format!("{base}/team/web/issues/{number}"),"assignees":[{"login":task.assignee}]})
+                "html_url":format!("{base}/team/web/issues/{number}"),
+                "assignees":task.assignee.iter().map(|id| json!({"login":id})).collect::<Vec<_>>()})
             }
             Platform::GitLab => {
                 json!({"id":1000+number,"iid":number,"project_id":7,"title":task.title,"description":task.body,"state":"opened",
-                "web_url":format!("{base}/team/web/-/issues/{number}"),"assignees":[{"id":task.assignee.parse::<u64>().unwrap(),"username":if task.assignee == "1" {"alice"} else {"bob"}}]})
+                "web_url":format!("{base}/team/web/-/issues/{number}"),
+                "assignees":task.assignee.iter().map(|id| json!({"id":id.parse::<u64>().unwrap(),"username":if id == "1" {"alice"} else {"bob"}})).collect::<Vec<_>>()})
             }
             Platform::Jira => {
                 json!({"id":(1000+number).to_string(),"key":format!("WEB-{number}"),"fields":{
                 "summary":task.title,"description":adf(&task.body),"status":{"name":"In Progress"},"project":{"key":"WEB"},
-                "assignee":{"accountId":task.assignee,"displayName":task.assignee},"labels":[task.label],
+                "assignee":task.assignee.as_ref().map(|id| json!({"accountId":id,"displayName":id})),"labels":[task.label],
                 "issuelinks":self.blockers.get(&number).into_iter().flatten().map(|blocker| json!({"type":{"name":"Blocks","inward":"is blocked by","outward":"blocks"},"inwardIssue":{"key":format!("WEB-{blocker}")}})).collect::<Vec<_>>()}})
             }
         }
@@ -130,15 +132,15 @@ impl Fixture {
             Platform::GitHub => Task {
                 number,
                 title: string(body, "title"),
-                body: string(body, "body"),
-                assignee: body["assignees"][0].as_str().unwrap().to_owned(),
+                body: body["body"].as_str().unwrap_or_default().to_owned(),
+                assignee: body["assignees"][0].as_str().map(str::to_owned),
                 label: String::new(),
             },
             Platform::GitLab => Task {
                 number,
                 title: string(body, "title"),
-                body: string(body, "description"),
-                assignee: body["assignee_ids"][0].as_u64().unwrap().to_string(),
+                body: body["description"].as_str().unwrap_or_default().to_owned(),
+                assignee: body["assignee_ids"][0].as_u64().map(|id| id.to_string()),
                 label: String::new(),
             },
             Platform::Jira => {
@@ -148,9 +150,13 @@ impl Fixture {
                 Task {
                     number,
                     title: string(fields, "summary"),
-                    body: plain(&fields["description"]),
-                    assignee: string(&fields["assignee"], "accountId"),
-                    label: fields["labels"][0].as_str().unwrap().to_owned(),
+                    body: if fields["description"].is_null() {
+                        String::new()
+                    } else {
+                        plain(&fields["description"])
+                    },
+                    assignee: fields["assignee"]["accountId"].as_str().map(str::to_owned),
+                    label: fields["labels"][0].as_str().unwrap_or_default().to_owned(),
                 }
             }
         };
@@ -164,6 +170,62 @@ impl Fixture {
         } else {
             Ok(self.issue(number))
         }
+    }
+
+    fn assign(&mut self, number: u64, assignee: String) -> Result<Value, StatusCode> {
+        if ![self.platform.assignee(false), self.platform.assignee(true)]
+            .contains(&assignee.as_str())
+        {
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.number == number)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        assert!(
+            task.assignee.is_none(),
+            "the test client must not overwrite an assignment"
+        );
+        task.assignee = Some(assignee);
+        if matches!(self.platform, Platform::Jira) {
+            return Ok(Value::Null);
+        }
+        Ok(self.issue(number))
+    }
+
+    fn edit(&mut self, number: u64, body: &Value) -> Result<Value, StatusCode> {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|task| task.number == number)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        let (fields, title, description) = match self.platform {
+            Platform::GitHub => (body, "title", "body"),
+            Platform::GitLab => (body, "title", "description"),
+            Platform::Jira => (&body["fields"], "summary", "description"),
+        };
+        assert!(
+            fields
+                .as_object()
+                .unwrap()
+                .keys()
+                .all(|key| key == title || key == description)
+        );
+        if let Some(value) = fields.get(title) {
+            task.title = value.as_str().unwrap().to_owned();
+        }
+        if let Some(value) = fields.get(description) {
+            task.body = match self.platform {
+                Platform::Jira if value.is_null() => String::new(),
+                Platform::Jira => plain(value),
+                _ => value.as_str().unwrap().to_owned(),
+            };
+        }
+        if matches!(self.platform, Platform::Jira) {
+            return Ok(Value::Null);
+        }
+        Ok(self.issue(number))
     }
 
     fn link(&mut self, number: u64, blocker: u64) -> Result<Value, StatusCode> {
@@ -263,11 +325,9 @@ async fn api(State(fixture): State<Arc<Mutex<Fixture>>>, request: Request) -> Re
     fixture.requests += 1;
     let authorized = match fixture.platform {
         Platform::GitHub => {
-            parts
-                .headers
-                .get("authorization")
-                .is_some_and(|value| value == "Bearer fake-token")
-                && parts.headers.get("user-agent").is_some()
+            parts.headers.get("authorization").is_some_and(|value| {
+                value == "Bearer fake-token" || value == "Bearer manager-token"
+            }) && parts.headers.get("user-agent").is_some()
                 && parts
                     .headers
                     .get("x-github-api-version")
@@ -277,13 +337,13 @@ async fn api(State(fixture): State<Arc<Mutex<Fixture>>>, request: Request) -> Re
             parts
                 .headers
                 .get("private-token")
-                .is_some_and(|value| value == "fake-token")
+                .is_some_and(|value| value == "fake-token" || value == "manager-token")
                 && !parts.headers.contains_key("authorization")
         }
-        Platform::Jira => parts
-            .headers
-            .get("authorization")
-            .is_some_and(|value| value == "Basic dGVzdEBleGFtcGxlLmNvbTpmYWtlLXRva2Vu"),
+        Platform::Jira => parts.headers.get("authorization").is_some_and(|value| {
+            value == "Basic dGVzdEBleGFtcGxlLmNvbTpmYWtlLXRva2Vu"
+                || value == "Basic dGVzdEBleGFtcGxlLmNvbTptYW5hZ2VyLXRva2Vu"
+        }),
     };
     if !authorized {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -294,6 +354,7 @@ async fn api(State(fixture): State<Arc<Mutex<Fixture>>>, request: Request) -> Re
         Platform::Jira => jira(&mut fixture, &path[4..], &parts.method, &query, &body),
     };
     match result {
+        Ok(Value::Null) if parts.method == Method::PUT => StatusCode::NO_CONTENT.into_response(),
         Ok(Value::Null) => (StatusCode::CREATED, "").into_response(),
         Ok(value) => Json(value).into_response(),
         Err(status) => status.into_response(),
@@ -310,6 +371,11 @@ fn github(
     let p: Vec<_> = path.iter().map(String::as_str).collect();
     match p.as_slice() {
         ["user"] => Ok(json!({"login":"alice"})),
+        ["search", "issues"] if query["q"].contains("is:open") => {
+            assert_eq!(*method, Method::GET);
+            assert!(query["q"].contains("assignee:alice") || query["q"].contains("repo:team/web"));
+            Ok(json!({"total_count":31,"incomplete_results":false,"items":[f.issue(42)]}))
+        }
         ["search", "issues"] => {
             assert!(query["q"].contains("repo:team/web"));
             let items: Vec<_> = if query.get("page").is_some_and(|page| page != "1") {
@@ -327,7 +393,15 @@ fn github(
                 .map(|task| f.issue(task.number))
                 .collect::<Vec<_>>()
         )),
+        ["repos", "team", "web", "issues", number] if *method == Method::PATCH => {
+            f.edit(number.parse().unwrap(), body)
+        }
         ["repos", "team", "web", "issues", number] => Ok(f.issue(number.parse().unwrap())),
+        ["repos", "team", "web", "issues", number, "assignees"] if *method == Method::POST => f
+            .assign(
+                number.parse().unwrap(),
+                body["assignees"][0].as_str().unwrap().to_owned(),
+            ),
         ["repos", "team", "web", "issues", number, "comments"] if *method == Method::POST => {
             f.comment(number.parse().unwrap(), string(body, "body"))
         }
@@ -385,6 +459,11 @@ fn gitlab(
             Ok(json!([{"id":1,"username":"alice"},{"id":2,"username":"bob"}]))
         }
         ["projects", "team/web", "issues"] if *method == Method::POST => f.create(body),
+        ["issues"] if query["state"] == "opened" => {
+            assert_eq!(*method, Method::GET);
+            assert_eq!(query["scope"], "assigned_to_me");
+            Ok(json!([f.issue(42)]))
+        }
         ["projects", "team/web", "issues"] => Ok(json!(if query
             .get("page")
             .is_some_and(|page| page != "1")
@@ -396,6 +475,17 @@ fn gitlab(
                 .map(|task| f.issue(task.number))
                 .collect::<Vec<_>>()
         })),
+        ["projects", "team/web", "issues", number] if *method == Method::PUT => {
+            let number = number.parse().unwrap();
+            if body.get("assignee_ids").is_some() {
+                f.assign(
+                    number,
+                    body["assignee_ids"][0].as_u64().unwrap().to_string(),
+                )
+            } else {
+                f.edit(number, body)
+            }
+        }
         ["projects", "team/web", "issues", number] => Ok(f.issue(number.parse().unwrap())),
         ["projects", "team/web", "issues", number, "notes"] if *method == Method::POST => {
             f.comment(number.parse().unwrap(), string(body, "body"))
@@ -450,6 +540,15 @@ fn jira(
         }
         ["search", "jql"] => {
             let jql = &query["jql"];
+            if jql.contains("statusCategory != Done") {
+                assert_eq!(*method, Method::GET);
+                assert!(jql.contains("assignee = currentUser()"));
+                return if query.contains_key("nextPageToken") {
+                    Ok(json!({"issues":[],"isLast":true}))
+                } else {
+                    Ok(json!({"issues":[f.issue(42)],"isLast":false,"nextPageToken":"pull-page-2"}))
+                };
+            }
             let label = jql
                 .split("labels = ")
                 .nth(1)
@@ -469,7 +568,11 @@ fn jira(
             }
         }
         ["issue"] if *method == Method::POST => f.create(body),
+        ["issue", key] if *method == Method::PUT => f.edit(number(key), body),
         ["issue", key] => Ok(f.issue(number(key))),
+        ["issue", key, "assignee"] if *method == Method::PUT => {
+            f.assign(number(key), string(body, "accountId"))
+        }
         ["issue", key, "comment"] if *method == Method::POST => {
             f.comment(number(key), plain(&body["body"]))
         }

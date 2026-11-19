@@ -25,19 +25,24 @@ pub fn command() -> Command {
     for variable in [
         "GITEA_URL",
         "GITEA_TOKEN_FILE",
+        "GITEA_DEFAULT_PROJECT",
         "PLANE_URL",
         "PLANE_TOKEN_FILE",
         "PLANE_WORKSPACE",
+        "PLANE_DEFAULT_PROJECT",
         "GITHUB_URL",
         "GITHUB_TOKEN_FILE",
+        "GITHUB_DEFAULT_PROJECT",
         "GITLAB_URL",
         "GITLAB_TOKEN_FILE",
+        "GITLAB_DEFAULT_PROJECT",
         "JIRA_URL",
         "JIRA_TOKEN_FILE",
         "JIRA_EMAIL",
         "JIRA_ISSUE_TYPE",
         "JIRA_LINK_TYPE",
         "JIRA_CLOUD_ID",
+        "JIRA_DEFAULT_PROJECT",
     ] {
         command.env_remove(variable);
     }

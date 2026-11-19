@@ -10,6 +10,12 @@ MergeLane runs on each developer's machine over MCP stdio. Issues and checkpoint
 
 Before starting work, the agent claims a local task lease. Sessions under the same OS user on the same computer share the lease store across clients and worktrees. The owning MCP connection renews its lease automatically. The agent releases it when done or paused, and a crashed session's lease can be reclaimed after expiry. See the [task lease workflow](docs/collaboration.md#本地任务租约).
 
+Use the `mergelane_pull_tasks` MCP tool or the `mergelane pull` command to fetch open work assigned to your configured accounts. Specify a backend and project to fetch all open work in that project. [Daily pull guide](docs/configuration.md#每日拉取)
+
+Create an unassigned issue with `*_create_issue`, then share its link with a manager who can use `*_assign_issue` from their own session. Set a default project to create issues with just a title and write approval. [Issue handoff guide](docs/collaboration.md#先录入再分配)
+
+Use `*_edit_issue` to update the title or replace the description of an existing issue after approval. Pass the issue link and the fields you want to edit. [Editing issues](docs/collaboration.md#编辑工单)
+
 All five integrations can run independently or together, with separate credentials, write flags, and pending previews. GitHub, GitLab, and Jira share a REST collaboration workflow while adapters preserve platform-specific identity, search, and dependency semantics. See the [GitHub](docs/github.md), [GitLab](docs/gitlab.md), and [Jira](docs/jira.md) setup guides (in Chinese).
 
 Native blockers depend on the platform's APIs, permissions, and plan. GitLab blocking relations require an eligible plan; Jira support targets Cloud REST v3. Git file version comparisons remain available through Gitea and Plane. The three new adapters have mock API coverage; live account acceptance has not been performed.
@@ -53,7 +59,7 @@ Multiple integrations can run in the same process. HTTPS is required except for 
 
 ## Team workflow
 
-Each person configures their own client and personal credentials. The shared backend holds task assignments, blockers, native issue state, and progress comments. Use the backend UI to maintain issue state; MergeLane reads that state and publishes plans and checkpoints.
+Each person configures their own client and personal credentials. The shared backend holds task assignments, blockers, native issue state, and progress comments. MergeLane reads that state and can create issues, assign owners, publish plans, and post checkpoints.
 
 1. Ask the agent to find the parent issue and preview a task split with assignees, acceptance criteria, and dependencies.
 2. Review the preview before publishing. Writes are disabled by default; add the corresponding `--<backend>-write` flag when needed. Publishing requires the latest preview ID and a confirmation flag. The caller supplies that flag, so retain human approval in your client.

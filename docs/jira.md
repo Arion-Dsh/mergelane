@@ -29,7 +29,7 @@ args = ["mcp", "--jira-url", "https://team.atlassian.net", "--jira-email", "you@
 
 ## 工具与查询
 
-提供 `jira_search_issues`、`jira_issue_context`、`jira_preview_plan`；写入时增加 `jira_apply_plan`、`jira_checkpoint`。工单输入支持 `WEB-42` 或当前站点 `/browse/WEB-42` 链接，项目用 key，负责人用上下文返回的 **accountId**。
+提供 `jira_search_issues`、`jira_issue_context`、`jira_preview_plan`。启用写入时还提供 `jira_create_issue`、`jira_assign_issue`、`jira_edit_issue`、`jira_apply_plan`、`jira_checkpoint`。工单输入支持 `WEB-42` 或当前站点 `/browse/WEB-42` 链接，项目用 key，负责人用上下文返回的 **accountId**。
 
 ```json
 {"project":"WEB","query":"export","mine":true}

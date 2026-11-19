@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 use references::{Dependency, IssueRef, commit_id, dependencies, repository};
+pub(crate) use search::Search;
 
 const MAX_RESPONSE: usize = 1024 * 1024;
 const PAGE_SIZE: usize = 50;

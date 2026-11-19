@@ -31,6 +31,9 @@ pub(crate) struct Init {
     token_file: Option<PathBuf>,
     #[arg(long)]
     workspace: Option<String>,
+    /// Save a default destination for standalone issue creation.
+    #[arg(long)]
+    default_project: Option<String>,
     #[arg(long)]
     email: Option<String>,
     #[arg(long)]
@@ -133,6 +136,7 @@ impl Init {
             url,
             token_file,
             workspace,
+            default_project: self.default_project,
             email,
             cloud_id,
             issue_type: self.issue_type,

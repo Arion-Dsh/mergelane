@@ -109,6 +109,14 @@ impl Jira {
             .await
     }
 
+    fn issue_type(&self) -> Value {
+        if self.issue_type.bytes().all(|c| c.is_ascii_digit()) {
+            json!({"id":self.issue_type})
+        } else {
+            json!({"name":self.issue_type})
+        }
+    }
+
     async fn search_page(&self, jql: &str, cursor: Option<String>) -> anyhow::Result<Value> {
         let mut query = vec![
             ("jql", jql.to_owned()),
@@ -183,6 +191,9 @@ impl Api for Jira {
             !clauses.is_empty(),
             "provide a Jira project, query, assignee or mine to bound the search"
         );
+        if input.open_only {
+            clauses.push("statusCategory != Done".to_owned());
+        }
         let value = self
             .search_page(
                 &format!("{} ORDER BY updated DESC", clauses.join(" AND ")),
@@ -315,14 +326,60 @@ impl Api for Jira {
     }
 
     async fn create(&self, task: &Task, body: &str, marker: &str) -> anyhow::Result<Issue> {
-        let issue_type = if self.issue_type.bytes().all(|c| c.is_ascii_digit()) {
-            json!({"id":self.issue_type})
-        } else {
-            json!({"name":self.issue_type})
-        };
         let value = self.http.post(&["issue"], &json!({"fields":{"project":{"key":task.project()?},"summary":task.title,
-            "description":adf(body),"issuetype":issue_type,"assignee":{"accountId":task.assignee},"labels":[marker.replace(':', "-")]}})).await?;
+            "description":adf(body),"issuetype":self.issue_type(),"assignee":{"accountId":task.assignee},"labels":[marker.replace(':', "-")]}})).await?;
         self.issue(required(&value, "key")?).await
+    }
+
+    async fn create_unassigned(
+        &self,
+        project: &str,
+        input: &crate::issue::Create,
+    ) -> anyhow::Result<Issue> {
+        let mut fields = json!({
+            "project":{"key":project},"summary":input.title,
+            "issuetype":self.issue_type(),"assignee":null
+        });
+        if let Some(description) = input.description.as_deref().filter(|text| !text.is_empty()) {
+            fields["description"] = adf(description);
+        }
+        let value = self
+            .http
+            .post(&["issue"], &json!({"fields":fields}))
+            .await?;
+        let key = self.key(required(&value, "key")?)?;
+        self.issue(&key).await.with_context(|| {
+            let url = append(self.http.web.clone(), &["browse", &key]);
+            format!("Jira created {url} but its assignment could not be read")
+        })
+    }
+
+    async fn assign(&self, issue: &Issue, assignee: &str) -> anyhow::Result<Issue> {
+        ensure!(
+            assignee != "-1",
+            "provide a Jira accountId for a specific member"
+        );
+        self.http
+            .put(
+                &["issue", &issue.key, "assignee"],
+                &json!({"accountId":assignee}),
+            )
+            .await?;
+        self.issue(&issue.key).await
+    }
+
+    async fn edit(&self, issue: &Issue, input: &crate::issue::Edit) -> anyhow::Result<Issue> {
+        let fields = input.fields("summary", "description", |text| {
+            if text.is_empty() {
+                Value::Null
+            } else {
+                adf(text)
+            }
+        });
+        self.http
+            .put(&["issue", &issue.key], &json!({"fields":fields}))
+            .await?;
+        self.issue(&issue.key).await
     }
 
     async fn block(&self, issue: &Issue, blocker: &Issue) -> anyhow::Result<()> {

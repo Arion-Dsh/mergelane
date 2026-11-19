@@ -128,6 +128,9 @@ impl Api for GitHub {
             "choose mine or assignee"
         );
         let mut query = "is:issue".to_owned();
+        if input.open_only {
+            query.push_str(" is:open");
+        }
         if let Some(project) = input.project {
             query.push_str(&format!(" repo:{}", self.project(&project)?));
         }
@@ -292,6 +295,39 @@ impl Api for GitHub {
                 )
                 .await?,
         )
+    }
+
+    async fn create_unassigned(
+        &self,
+        project: &str,
+        input: &crate::issue::Create,
+    ) -> anyhow::Result<Issue> {
+        let mut body = json!({"title": input.title});
+        if let Some(description) = &input.description {
+            body["body"] = json!(description);
+        }
+        self.decode(project, self.http.post(&self.path(project)?, &body).await?)
+    }
+
+    async fn assign(&self, issue: &Issue, assignee: &str) -> anyhow::Result<Issue> {
+        let (_, number) = self.reference(&issue.key)?;
+        let number = number.to_string();
+        let mut path = self.path(&issue.project)?;
+        path.extend([number.as_str(), "assignees"]);
+        let value = self
+            .http
+            .post(&path, &json!({"assignees":[assignee]}))
+            .await?;
+        self.decode(&issue.project, value)
+    }
+
+    async fn edit(&self, issue: &Issue, input: &crate::issue::Edit) -> anyhow::Result<Issue> {
+        let (_, number) = self.reference(&issue.key)?;
+        let number = number.to_string();
+        let mut path = self.path(&issue.project)?;
+        path.push(&number);
+        let body = input.fields("title", "body", |text| json!(text));
+        self.decode(&issue.project, self.http.patch(&path, &body).await?)
     }
 
     async fn block(&self, issue: &Issue, blocker: &Issue) -> anyhow::Result<()> {

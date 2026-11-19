@@ -55,6 +55,8 @@ MCP 客户端的审批策略也会影响写入操作。即使 Plane 账号有权
 4. 队员说出自己的任务标题或让 Agent 查分给自己的任务。选择工单后，Agent 调用 `plane_issue_context` 获取需求、负责人、关系、最近评论和检查点。不同客户端读取的是同一份 Plane 工单。
 5. 换人或暂停前，让 Agent 拟好进度、验证结果和下一步。确认后由 `plane_checkpoint` 发布到工单评论，可附 HTTPS 的 Git commit 链接。接手人读取相同工单继续。
 
+启用 `--plane-write` 后，可确认调用 `plane_edit_issue` 修改现有工单的标题或描述。[编辑工单](collaboration.md#编辑工单) · [Plane 更新工单 API](https://developers.plane.so/api-reference/issue/update-issue-detail)
+
 计划预览只读取 Plane，写入工具需要 `--plane-write` 且发布时传入确认后的预览 ID。部分写入失败后，可以在同一会话重试，或在新会话预览原样的计划后重试。工具使用 `external_source=mergelane` 和确定性的 `external_id` 查找已创建任务与评论，继续补齐关系和汇总。同一计划由一位负责人提交。
 
 ## Gitea 文件版本跟踪
@@ -82,3 +84,5 @@ https://git.example.com/team/specs/src/commit/0123456789abcdef0123456789abcdef01
 本地模拟服务器测试覆盖游标分页、确认前只读、指派、请求提交后响应失败的恢复、关系写入失败的恢复、共享检查点和 Gitea 文件变化。
 
 2026-11-18 已在真实 Plane Community v1.4.2 上完成拆单、两名成员指派、原生阻塞关系、按项目／标题／队员查询、重复计划重试和检查点回读。三个独立 Codex CLI 会话分别完成产品确认、程序员接手和管理者查询，使用了两个不同的 Plane 账号。跨会话通过 Plane 里的交接标记核对上下文。Claude Code 和 Cursor 的实际客户端操作仍需在已配置对应客户端的环境中验证。升级自托管实例后可再次运行这套验收流程。
+
+2026-11-19 已在真实 Plane 实例通过 `plane_edit_issue` 验证单独更新标题、单独替换描述、清空描述和同时更新两项。独立只读会话回读确认了多行文本、特殊字符和工单元数据。只读模式和未经确认的调用均拒绝编辑。

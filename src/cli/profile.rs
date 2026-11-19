@@ -20,7 +20,7 @@ pub(crate) async fn parse() -> anyhow::Result<Cli> {
     let selection = select(&args)?;
     let Some((index, command)) = selection
         .command
-        .filter(|(_, command)| matches!(command.as_str(), "mcp" | "doctor"))
+        .filter(|(_, command)| matches!(command.as_str(), "mcp" | "doctor" | "pull"))
     else {
         return Ok(Cli::parse());
     };
@@ -70,7 +70,7 @@ fn select(args: &[OsString]) -> anyhow::Result<Selection> {
         } else if selection.command.is_none()
             && matches!(
                 arg.to_str(),
-                Some("mcp" | "doctor" | "init" | "gitea-context" | "gitea-watch")
+                Some("mcp" | "doctor" | "pull" | "init" | "gitea-context" | "gitea-watch")
             )
         {
             selection.command = Some((index, arg.to_string_lossy().into_owned()));

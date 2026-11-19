@@ -8,7 +8,10 @@ use super::{
     plan::{Draft, Plan},
     write::Checkpoint,
 };
-use crate::mcp::{ApplyArgs, ContextArgs, object, tool};
+use crate::{
+    issue,
+    mcp::{ApplyArgs, ContextArgs, object, tool},
+};
 
 const CONTEXT: &str = "gitea_issue_context";
 const PREVIEW: &str = "gitea_preview_plan";
@@ -17,13 +20,15 @@ const CHECKPOINT: &str = "gitea_checkpoint";
 
 pub(crate) struct Session {
     write: bool,
+    default_project: Option<String>,
     pending: Option<Plan>,
 }
 
 impl Session {
-    pub(crate) fn new(write: bool) -> Self {
+    pub(crate) fn new(write: bool, default_project: Option<String>) -> Self {
         Self {
             write,
+            default_project,
             pending: None,
         }
     }
@@ -71,6 +76,15 @@ impl Session {
                 let args: Checkpoint = serde_json::from_value(args)?;
                 gitea.checkpoint(args).await
             }
+            "gitea_create_issue" if self.write => {
+                let input = issue::Create::parse(args)?;
+                let project = input.project(self.default_project.as_deref())?;
+                gitea.create_issue(project, &input).await
+            }
+            "gitea_assign_issue" if self.write => {
+                gitea.assign_issue(issue::Assign::parse(args)?).await
+            }
+            "gitea_edit_issue" if self.write => gitea.edit_issue(issue::Edit::parse(args)?).await,
             _ => anyhow::bail!("unknown or disabled tool"),
         }
     }
@@ -111,6 +125,11 @@ fn tools(write: bool) -> Vec<Value> {
         ),
     ];
     if write {
+        result.extend(issue::tools(
+            "gitea",
+            "Repository as owner/repo.",
+            "Gitea username.",
+        ));
         result.extend([
             tool(APPLY, "Publish the latest preview in this MCP session only after the user explicitly confirms it. Creates Gitea issues, assigns owners, and records dependencies.",
                 object(json!({"plan_id":text,"confirmed":flag}), &["plan_id","confirmed"]), false),

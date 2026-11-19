@@ -2,7 +2,7 @@ use anyhow::ensure;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Gitea, Issue};
+use super::{Gitea, Issue, repository};
 use crate::validation::simple_text;
 
 #[derive(Deserialize)]
@@ -15,6 +15,10 @@ pub struct Search {
     pub assignee: Option<String>,
     #[serde(default = "first_page")]
     pub page: u32,
+    #[serde(skip)]
+    pub(crate) project: Option<String>,
+    #[serde(skip)]
+    pub(crate) open_only: bool,
 }
 
 fn first_page() -> u32 {
@@ -39,12 +43,18 @@ impl Gitea {
                 "owner and assignee must be single-line names"
             );
         }
-        let mut url = self.url(&["api", "v1", "repos", "issues", "search"]);
+        let mut url = match &input.project {
+            Some(project) => {
+                let (owner, repo) = repository(project)?;
+                self.repo_api(owner, repo, &["issues"])
+            }
+            None => self.url(&["api", "v1", "repos", "issues", "search"]),
+        };
         {
             let mut query = url.query_pairs_mut();
             query
                 .append_pair("type", "issues")
-                .append_pair("state", "all")
+                .append_pair("state", if input.open_only { "open" } else { "all" })
                 .append_pair("page", &input.page.to_string())
                 .append_pair("limit", "30");
             if let Some(text) = &input.query {

@@ -2,7 +2,7 @@
 
 MergeLane 通过 CLI 参数或进程环境变量读取连接配置，命令参数优先。程序不会自动加载 `.env`；[.env.example](../.env.example) 仅是变量参考。MCP 客户端需使用已安装的 `mergelane` 的绝对路径。
 
-`mergelane init` 可保存个人配置并生成客户端片段。`mcp`／`doctor` 自动加载默认配置，优先级为显式参数、保存设置、环境变量。`--config <路径>` 指定文件，`--no-config` 忽略保存设置。详见 [安装与首次配置](installation.md)。
+`mergelane init` 可保存个人配置并生成客户端片段。`mcp`、`doctor` 和 `pull` 自动加载默认配置，优先级为显式参数、保存设置、环境变量。`--config <路径>` 指定文件，`--no-config` 忽略保存设置。详见 [安装与首次配置](installation.md)。
 
 ## 连接配置
 
@@ -10,19 +10,24 @@ MergeLane 通过 CLI 参数或进程环境变量读取连接配置，命令参�
 | --- | --- | --- |
 | `--gitea-url` | `GITEA_URL` | Gitea 实例根地址，可带安装子路径 |
 | `--gitea-token-file` | `GITEA_TOKEN_FILE` | Gitea 个人 token 文件路径 |
+| `--gitea-default-project` | `GITEA_DEFAULT_PROJECT` | 单独建单的默认仓库，格式为 `owner/repo` |
 | `--plane-url` | `PLANE_URL` | Plane 实例根地址，可带安装子路径 |
 | `--plane-token-file` | `PLANE_TOKEN_FILE` | Plane 个人 API key 文件路径 |
-| `--plane-workspace` | `PLANE_WORKSPACE` | Plane 搜索默认使用的工作空间 slug |
+| `--plane-workspace` | `PLANE_WORKSPACE` | Plane 搜索和单独建单使用的默认工作空间 slug |
+| `--plane-default-project` | `PLANE_DEFAULT_PROJECT` | 单独建单的默认项目标识、名称或 UUID |
 | `--github-url` | `GITHUB_URL` | GitHub 网站根地址（自动选择 REST API 地址） |
 | `--github-token-file` | `GITHUB_TOKEN_FILE` | GitHub 个人 token 文件 |
+| `--github-default-project` | `GITHUB_DEFAULT_PROJECT` | 单独建单的默认仓库，格式为 `owner/repo` |
 | `--gitlab-url` | `GITLAB_URL` | GitLab 实例根地址 |
 | `--gitlab-token-file` | `GITLAB_TOKEN_FILE` | GitLab 个人 token 文件 |
+| `--gitlab-default-project` | `GITLAB_DEFAULT_PROJECT` | 单独建单的默认项目路径，如 `group/subgroup/project` |
 | `--jira-url` | `JIRA_URL` | Jira Cloud 网页站点根地址 |
 | `--jira-email` | `JIRA_EMAIL` | Atlassian 账号邮箱 |
 | `--jira-token-file` | `JIRA_TOKEN_FILE` | Jira API token 文件 |
 | `--jira-cloud-id` | `JIRA_CLOUD_ID` | Scoped token 的 Cloud ID，选择官方 API 网关 |
 | `--jira-issue-type` | `JIRA_ISSUE_TYPE` | Jira 创建类型名称或 ID，默认 `Task` |
 | `--jira-link-type` | `JIRA_LINK_TYPE` | Jira 阻塞关系类型名，默认 `Blocks` |
+| `--jira-default-project` | `JIRA_DEFAULT_PROJECT` | 单独建单的默认项目 key |
 
 每个后端的地址和凭据文件必须同时提供。MCP 模式至少配置一个后端，可以同时配置多个平台。Jira 还需账号邮箱；scoped token 需 Cloud ID。Plane 未设置默认工作空间时，搜索调用需显式提供 `workspace`。
 
@@ -36,6 +41,7 @@ MergeLane 通过 CLI 参数或进程环境变量读取连接配置，命令参�
 | `mergelane init` | 配置一个平台，保留其他平台，打印客户端配置片段 |
 | `mergelane doctor` | 验证配置和凭据后检查当前账号接口，不执行发布 |
 | `mergelane doctor --offline` | 只验证本地设置与凭据文件 |
+| `mergelane pull` | 拉取分给当前账号的未完成工单和任务 |
 | `mergelane gitea-context 'team/web#42'` | 输出选定 Gitea 工单、阻塞关系、评论与资料版本信息 |
 | `mergelane gitea-watch 'team/web#42'` | 轮询选定的 Gitea 工单，输出发生变化的 JSON 行 |
 
@@ -49,11 +55,33 @@ mergelane mcp --help
 mergelane gitea-watch --help
 ```
 
+## 每日拉取
+
+`pull` 每次读取一份当前快照。默认汇总五种已支持平台中当前已配置账号的待办。指定项目后，读取该项目所有可见的未完成工单，包括未指派工单。
+
+MCP 客户端连接 `mergelane mcp` 后，可以让 Agent 调用只读工具 `mergelane_pull_tasks`。传 `{}` 拉取「我的待办」，传 `{"backend":"github","project":"owner/repo"}` 拉取指定项目。工具沿用同一套账号配置和快照格式，在 `mcp --read-only` 下也可用。
+
+```sh
+mergelane pull
+mergelane pull --backend github --project owner/repo
+mergelane pull --backend plane --project BILL
+```
+
+项目筛选使用 Gitea 或 GitHub 仓库路径、GitLab 带命名空间的项目路径、Jira 项目 key，或 Plane 的项目标识、名称或 UUID。Plane 需要配置默认工作空间。快照包含标题、链接、项目、状态和负责人。分页平台默认每个来源最多查询 10 页，可用 CLI 的 `--max-pages` 或 MCP 的 `max_pages` 调整。Plane 每个来源最多返回 50 条，可缩小到单个项目。查询失败、超时或截断时仍返回已取得的结果，并标记 `complete: false`。CLI 同时以非零状态退出。
+
+每天拉取可由支持定时调用的 MCP 客户端触发，也可使用本机定时任务运行 CLI。macOS 或 Linux 可以在 `crontab -e` 中配置每天 09:00 拉取，时间以机器本地时区为准。
+
+```cron
+0 9 * * * umask 077; mkdir -p "$HOME/.mergelane" && /absolute/path/to/mergelane pull > "$HOME/.mergelane/daily-tasks.tmp" && mv "$HOME/.mergelane/daily-tasks.tmp" "$HOME/.mergelane/daily-tasks.json"
+```
+
+将可执行文件改为安装位置。若账号保存在自定义配置路径，加上 `--config /absolute/path/to/profile.json`。只有完整拉取才替换上一次快照，部分结果留在临时文件。Windows 可在任务计划程序中每天运行相同命令，并用 PowerShell 将输出保存到用户目录。定时任务按本机调度器和开机状态运行。
+
 ## 读取与写入
 
 默认提供每个已配置后端的 `*_search_issues`、`*_issue_context` 和 `*_preview_plan`。预览只读取远端，最新预览保留在当前 MCP 会话。
 
-`--gitea-write`、`--plane-write`、`--github-write`、`--gitlab-write`、`--jira-write` 各自额外提供对应平台的 `*_apply_plan` 和 `*_checkpoint`。五个开关相互独立，并且仍受远端账号权限与客户端审批控制。发布计划需匹配当前会话的最新 `plan_id`，写入需调用方提供确认标记。团队流程见 [协作指南](collaboration.md)。
+`--gitea-write`、`--plane-write`、`--github-write`、`--gitlab-write`、`--jira-write` 各自额外提供对应平台的 `*_create_issue`、`*_assign_issue`、`*_edit_issue`、`*_apply_plan` 和 `*_checkpoint`。五个开关相互独立，并且仍受远端账号权限与客户端审批控制。发布计划需匹配当前会话的最新 `plan_id`，写入需调用方提供确认标记。使用 `mergelane init --default-project <项目>` 时，个人配置会为所选平台保存 `default_project`。团队流程见 [协作指南](collaboration.md)。
 
 本地领取默认可用，与各平台发布开关独立。`mcp --read-only` 禁用远端发布及本地领取、续租和释放，保留租约状态查询。`doctor` 始终只读，账号连接成功不代表具备特定项目或写入权限。
 

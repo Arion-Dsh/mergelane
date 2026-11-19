@@ -49,6 +49,7 @@ impl GitLab {
             let path = instance_path(&self.http.web, input)?;
             let (project, number) = path
                 .rsplit_once("/-/issues/")
+                .or_else(|| path.rsplit_once("/-/work_items/"))
                 .context("expected a GitLab issue URL")?;
             (project.to_owned(), number.to_owned())
         } else {
@@ -127,7 +128,10 @@ impl Api for GitLab {
             "provide a GitLab project path, or use mine for global assigned issues"
         );
         let mut query = vec![
-            ("state", "all".to_owned()),
+            (
+                "state",
+                if input.open_only { "opened" } else { "all" }.to_owned(),
+            ),
             (
                 "scope",
                 if input.mine { "assigned_to_me" } else { "all" }.to_owned(),
@@ -262,11 +266,7 @@ impl Api for GitLab {
     }
 
     async fn create(&self, task: &Task, body: &str, _marker: &str) -> anyhow::Result<Issue> {
-        let id = task
-            .assignee
-            .parse::<u64>()
-            .context("GitLab assignee must be a numeric member ID")?;
-        ensure!(id > 0, "GitLab assignee must be positive");
+        let id = member_id(&task.assignee)?;
         self.decode(
             self.http
                 .post(
@@ -275,6 +275,52 @@ impl Api for GitLab {
                 )
                 .await?,
         )
+    }
+
+    async fn create_unassigned(
+        &self,
+        project: &str,
+        input: &crate::issue::Create,
+    ) -> anyhow::Result<Issue> {
+        let mut body = json!({"title": input.title});
+        if let Some(description) = &input.description {
+            body["description"] = json!(description);
+        }
+        let value = self
+            .http
+            .post(&["projects", project, "issues"], &body)
+            .await?;
+        self.decode(value)
+    }
+
+    async fn assign(&self, issue: &Issue, assignee: &str) -> anyhow::Result<Issue> {
+        let id = member_id(assignee)?;
+        ensure!(
+            id.to_string() == assignee,
+            "use the numeric member ID from issue_context"
+        );
+        let (project, number) = self.reference(&issue.key)?;
+        let value = self
+            .http
+            .put(
+                &["projects", &project, "issues", &number.to_string()],
+                &json!({"assignee_ids":[id]}),
+            )
+            .await?;
+        self.decode(value)
+    }
+
+    async fn edit(&self, issue: &Issue, input: &crate::issue::Edit) -> anyhow::Result<Issue> {
+        let (project, number) = self.reference(&issue.key)?;
+        let body = input.fields("title", "description", |text| json!(text));
+        let value = self
+            .http
+            .put(
+                &["projects", &project, "issues", &number.to_string()],
+                &body,
+            )
+            .await?;
+        self.decode(value)
     }
 
     async fn block(&self, issue: &Issue, blocker: &Issue) -> anyhow::Result<()> {
@@ -295,4 +341,12 @@ impl Api for GitLab {
             .await?;
         Ok(())
     }
+}
+
+fn member_id(assignee: &str) -> anyhow::Result<u64> {
+    let id = assignee
+        .parse::<u64>()
+        .context("GitLab assignee must be a numeric member ID")?;
+    ensure!(id > 0, "GitLab assignee must be positive");
+    Ok(id)
 }

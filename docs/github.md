@@ -16,7 +16,7 @@ args = ["mcp", "--github-url", "https://github.com", "--github-token-file", "/ab
 
 ## 工具与查询
 
-提供 `github_search_issues`、`github_issue_context`、`github_preview_plan`；写入时增加 `github_apply_plan`、`github_checkpoint`。工单使用完整网页链接或 `owner/repo#42`。项目为 `owner/repo`，负责人使用上下文返回的可指派成员 login。计划任务默认在总任务仓库创建，也可指定 `project`。
+提供 `github_search_issues`、`github_issue_context`、`github_preview_plan`。启用写入时还提供 `github_create_issue`、`github_assign_issue`、`github_edit_issue`、`github_apply_plan`、`github_checkpoint`。工单使用完整网页链接或 `owner/repo#42`。项目为 `owner/repo`，负责人使用上下文返回的可指派成员 login。计划任务默认在总任务仓库创建，也可指定 `project`。
 
 ```json
 {"project":"team/web","query":"export","assignee":"alice","page":1}
