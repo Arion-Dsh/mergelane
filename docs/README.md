@@ -6,7 +6,7 @@ MergeLane 让多人通过各自的 Agent，共享任务、分工、依赖和进�
 
 | 文档 | 适合什么时候阅读 |
 | --- | --- |
-| [项目说明与安装](../README.md) | 第一次了解项目、安装命令行工具 |
+| [项目说明与安装](../README.zh-CN.md) | 第一次了解项目、安装命令行工具 |
 | [安装与首次配置](installation.md) | Homebrew、安装包、init 向导和 doctor |
 | [团队协作流程](collaboration.md) | 建立团队的拆分、分派、开发、进度查询和协同方式 |
 | [Gitea 接入](gitea.md) | 配置凭据与客户端、使用工单和 Git 文件版本跟踪 |
