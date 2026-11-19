@@ -22,7 +22,9 @@ Native blockers depend on the platform's APIs, permissions, and plan. GitLab blo
 
 ## Getting started
 
-After the first stable release, macOS users can install prebuilt binaries from the [MergeLane Homebrew tap](https://github.com/Arion-Dsh/homebrew-tap) using the full formula name:
+Create a personal token in your issue tracker, then run the [one-command installer](docs/installation.md#一键安装). Enter the token during setup to install MergeLane, register MCP, and add the shared skill for your selected clients.
+
+macOS users can also install prebuilt binaries from the [MergeLane Homebrew tap](https://github.com/Arion-Dsh/homebrew-tap):
 
 ```sh
 brew install Arion-Dsh/tap/mergelane
@@ -30,7 +32,7 @@ mergelane init
 mergelane doctor
 ```
 
-**The tap is initialized. This command becomes available when the first release publishes the formula.** See [installation and setup](docs/installation.md) (in Chinese). Source builds require Rust 1.97.0, pinned in [rust-toolchain.toml](rust-toolchain.toml).
+See [installation and setup](docs/installation.md) (in Chinese). Source builds require Rust 1.97.0, pinned in [rust-toolchain.toml](rust-toolchain.toml).
 
 ```sh
 cargo install --locked --path .
@@ -56,6 +58,16 @@ Multiple integrations can run in the same process. HTTPS is required except for 
 [.env.example](.env.example) lists supported environment variables. MergeLane **does not automatically load `.env` files**. Export variables before starting the process or set them in your MCP client. Configuration contains token file paths, never token values.
 
 `init` saves personal settings and prints a reviewed client snippet without changing client files. Use `--client claude` or `--client cursor` for JSON, or the default Codex TOML. `mcp` and `doctor` load saved settings; `--config` selects a file and `--no-config` ignores it. Explicit arguments override saved settings, which override environment variables. `doctor --offline` skips network checks. `mcp --read-only` disables all write tools.
+
+### MergeLane Skill
+
+Install for Codex, Claude Code, and Cursor with the [Skills CLI](https://github.com/vercel-labs/skills#install-a-skill). The command requires Node.js 22.20 or later.
+
+```sh
+npx skills add Arion-Dsh/mergelane --skill mergelane --agent codex claude-code cursor --global
+```
+
+Open a new session with MergeLane MCP configured and ask “Use MergeLane to pull my tasks.” See the [manual installation paths](docs/installation.md#手动安装) to install the file directly.
 
 ## Team workflow
 
@@ -86,4 +98,4 @@ Integration tests use mock APIs on random loopback ports, temporary files, and f
 
 ## License
 
-[MIT](LICENSE). Source installation is available. Binary release and Homebrew workflows are prepared but not published; crates.io publishing remains disabled. See [the release guide](docs/releasing.md).
+[MIT](LICENSE). Prebuilt binaries are available from [GitHub Releases](https://github.com/Arion-Dsh/mergelane/releases).

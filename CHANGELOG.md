@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Add a one-command installer for macOS, Linux, and Windows that installs `mergelane`, registers MCP in the selected clients, and installs the shared Skill for Codex, Claude Code, and Cursor.
+- Add `mergelane setup` with hidden personal-token input and reuse of existing MergeLane profiles.
+
 ## 0.1.1
 
 - Preview and publish a progress comment on a Plane parent work item using the assigned child's link. The preview shows the destination and comment for confirmation, and the published comment links back to the child.

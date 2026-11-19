@@ -70,7 +70,9 @@ fn select(args: &[OsString]) -> anyhow::Result<Selection> {
         } else if selection.command.is_none()
             && matches!(
                 arg.to_str(),
-                Some("mcp" | "doctor" | "pull" | "init" | "gitea-context" | "gitea-watch")
+                Some(
+                    "mcp" | "doctor" | "pull" | "init" | "setup" | "gitea-context" | "gitea-watch"
+                )
             )
         {
             selection.command = Some((index, arg.to_string_lossy().into_owned()));

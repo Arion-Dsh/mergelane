@@ -10,9 +10,9 @@ MergeLane 是一个二进制 crate，入口为 `src/main.rs`。每位团队成�
 | --- | --- |
 | `main` | 命令分发、进程启动和监听退出 |
 | `cli` | Clap 参数、环境变量和已配置后端的构建 |
-| `credentials` | 凭据文件大小、权限和内容读取 |
+| `credentials` | 凭据文件保存、读取、大小和权限校验 |
 | `settings`、`settings::storage` | 版本化个人配置、校验、相对路径、锁和原子更新 |
-| `setup` | init 交互、逐平台配置和客户端片段生成 |
+| `setup`、`setup::agent` | 安装向导、平台配置、MCP 配置合并和 Skill 安装 |
 | `cli::profile` | 将配置展开为参数再交给 Clap，保持参数校验与优先级 |
 | `doctor` | 只读凭据及账号连接检查、JSON 结果与失败退出码 |
 | `mcp` | 按行 JSON-RPC 输入输出、初始化、共用参数与 schema 构建、后端分发 |

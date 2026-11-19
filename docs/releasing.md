@@ -49,21 +49,23 @@ cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安
 ```sh
 dist generate
 dist generate --check
-dist plan --tag v0.1.1
+dist plan --tag v0.1.2
 ```
 
 标签应匹配 Cargo.toml 的版本号。自定义构建检查放在 [.github/release-check-steps.yml](../.github/release-check-steps.yml)，通过 `github-build-setup` 注入；不要手改生成的工作流。升级 dist 后重新生成并审阅变更。
 
 本机可执行 `dist build --artifacts=local --target aarch64-apple-darwin` 验证对应归档。这不能代替其他平台、全局安装器或真实 Homebrew 安装测试。完整全局打包需要有效 HEAD。
 
-确认待发布的 `main` 提交与演练一致后，手动运行 Release 并填写匹配 Cargo.toml 的版本标签，例如 `v0.1.1`。该操作创建版本标签、公开 Release，并更新稳定 Tap；预发布版本默认不更新稳定 Tap。
+确认待发布的 `main` 提交与演练一致后，手动运行 Release 并填写匹配 Cargo.toml 的版本标签，例如 `v0.1.2`。该操作创建版本标签并公开 Release，同时更新稳定 Tap。预发布版本默认跳过稳定 Tap 的更新。
 
 ```sh
-gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=v0.1.1
+gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=v0.1.2
 ```
 
 ## 发布后验收
 
 确认所有任务、Release 和 Tap 更新成功，并核对 Tap 的 Homebrew install 工作流：它在 Apple Silicon 和 Intel macOS 上通过正式下载地址安装刚更新的 Formula，并运行版本和帮助命令。随后在干净环境测试 `brew install Arion-Dsh/tap/mergelane`、`mergelane --version`、`mergelane init` 与 `mergelane doctor`，并核对各平台校验和及升级后的 MCP 路径。
+
+按[一键安装说明](installation.md#一键安装)用正式下载地址安装。使用测试凭据完成向导，确认 token 输入隐藏，所选客户端的 MCP 能拉取任务，并已安装随包 Skill。
 
 参考：[Homebrew 分发](https://axodotdev.github.io/cargo-dist/book/installers/homebrew.html)、[构建前自定义步骤](https://axodotdev.github.io/cargo-dist/book/ci/customizing.html)、[维护 Tap](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap)。

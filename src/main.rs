@@ -25,6 +25,9 @@ use cli::Mode;
 async fn main() -> anyhow::Result<()> {
     let cli = cli::parse().await?;
     match cli.mode {
+        Mode::Setup => {
+            setup::install(cli.config.map_or_else(settings::default_path, Ok)?).await?;
+        }
         Mode::Init(args) => {
             let path = match cli.config {
                 Some(path) => path,

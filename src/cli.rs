@@ -152,6 +152,8 @@ impl WriteOptions {
 
 #[derive(Subcommand)]
 pub(crate) enum Mode {
+    /// Configure MergeLane and install MCP and Skill for your coding agents.
+    Setup,
     /// Configure a platform and print a reviewed MCP client snippet.
     Init(Box<crate::setup::Init>),
     /// Validate credentials and check API connectivity without publishing.

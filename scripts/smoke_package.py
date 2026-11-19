@@ -28,7 +28,7 @@ def smoke(binary, root, version):
             env.pop(key)
     env["XDG_CONFIG_HOME"] = str(root / "unused-config")
     assert run(binary, ["--version"], env).strip() == f"mergelane {version}"
-    for command in ("init", "doctor", "mcp", "pull"):
+    for command in ("setup", "init", "doctor", "mcp", "pull"):
         run(binary, [command, "--help"], env)
     token = root / "fake-token"
     token.touch(mode=0o600)

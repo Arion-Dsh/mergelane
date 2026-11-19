@@ -1,11 +1,29 @@
 //! File-based credential loading at the process boundary.
 
-use std::path::Path;
+use std::{fs, io::Write as _, path::Path};
 
 use anyhow::{Context as _, ensure};
 use tokio::io::AsyncReadExt as _;
 
 const MAX_TOKEN_BYTES: usize = 4096;
+
+pub(crate) fn save_token(path: &Path, token: &str) -> anyhow::Result<()> {
+    let token = token.trim();
+    ensure!(
+        !token.is_empty() && token.len() <= MAX_TOKEN_BYTES && !token.chars().any(char::is_control),
+        "enter a nonempty single-line token of at most {MAX_TOKEN_BYTES} bytes"
+    );
+    let directory = path.parent().context("token path has no parent")?;
+    fs::create_dir_all(directory).context("cannot create credentials directory")?;
+    // Named temporary files default to mode 0600 on Unix.
+    let mut file = tempfile::NamedTempFile::new_in(directory)?;
+    file.write_all(token.as_bytes())?;
+    file.as_file().sync_all()?;
+    file.persist_noclobber(path)
+        .map_err(|error| error.error)
+        .context("cannot save personal token")?;
+    Ok(())
+}
 
 pub(crate) async fn read_token(path: &Path) -> anyhow::Result<String> {
     let file = tokio::fs::File::open(path)

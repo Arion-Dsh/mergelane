@@ -34,7 +34,9 @@ MergeLane 是运行在开发机上的 MCP stdio 命令。团队已有的任务�
 
 ## 开始使用
 
-普通用户只需要支持 MCP stdio 的客户端和可访问的任务平台。首版通过 [MergeLane 自建 Tap](https://github.com/Arion-Dsh/homebrew-tap) 分发 macOS 预编译包。正式发布后，使用完整包名即可安装：
+在工单平台生成个人 token，然后运行[一键安装命令](docs/installation.md#一键安装)。安装时填写 token，向导会安装 `mergelane`、注册所选客户端的 MCP 并安装共用 Skill。
+
+macOS 也可以通过 [MergeLane Homebrew Tap](https://github.com/Arion-Dsh/homebrew-tap) 安装预编译包：
 
 ```sh
 brew install Arion-Dsh/tap/mergelane
@@ -42,7 +44,7 @@ mergelane init
 mergelane doctor
 ```
 
-**Tap 已初始化，首个 Release 和 Formula 发布后此命令可用。** 完整操作见 [安装与首次配置](docs/installation.md)。当前源码安装需要 Rust 1.97.0，工具链在 [rust-toolchain.toml](rust-toolchain.toml) 固定。
+完整操作见 [安装与首次配置](docs/installation.md)。源码安装需要 Rust 1.97.0，工具链在 [rust-toolchain.toml](rust-toolchain.toml) 固定。
 
 1. 在源码目录安装：
 
@@ -55,6 +57,8 @@ mergelane doctor
 3. 从 [文档目录](docs/README.md) 选择团队使用的平台接入说明，把 `mergelane` 的绝对路径配置到 MCP 客户端，可同时配置多个平台。默认对远端只读。发布任务或检查点需显式添加对应的 `--<平台>-write`。
 
 [.env.example](.env.example) 列出可用环境变量。MergeLane **不会自动加载 `.env`**；请在启动进程前导出变量，或在 MCP 客户端中设置它们。凭据通过文件读取，不直接写入配置或命令参数。
+
+已经配置 MCP？用 `npx skills add` 为 Codex、Claude Code 和 Cursor 安装共用的 MergeLane Skill。[安装命令](docs/installation.md#安装-mergelane-skill)
 
 ## 团队如何使用
 
@@ -104,4 +108,4 @@ cargo test --locked --all-features
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE)。当前可从源码安装；二进制 Release 与 Homebrew 工作流已准备，尚未实际发布。crates.io 发布保持关闭。
+本项目采用 [MIT License](LICENSE)。预编译包见 [GitHub Releases](https://github.com/Arion-Dsh/mergelane/releases)。
