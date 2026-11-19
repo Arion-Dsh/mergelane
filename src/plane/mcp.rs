@@ -5,14 +5,16 @@ use serde_json::{Value, json};
 
 use super::{
     Plane,
+    checkpoint::{Checkpoint, ParentDraft, PublishParent},
     plan::{Draft, Plan},
-    write::Checkpoint,
 };
 use crate::{
     gitea::Gitea,
     issue,
     mcp::{ApplyArgs, ContextArgs, object, tool},
 };
+
+pub(crate) const PUBLISH_PARENT_CHECKPOINT: &str = "plane_publish_parent_checkpoint";
 
 pub(crate) struct Session {
     write: bool,
@@ -73,6 +75,16 @@ impl Session {
                     .checkpoint(serde_json::from_value::<Checkpoint>(args)?)
                     .await
             }
+            "plane_preview_parent_checkpoint" => {
+                plane
+                    .preview_parent_checkpoint(serde_json::from_value::<ParentDraft>(args)?)
+                    .await
+            }
+            PUBLISH_PARENT_CHECKPOINT if self.write => {
+                plane
+                    .publish_parent_checkpoint(serde_json::from_value::<PublishParent>(args)?)
+                    .await
+            }
             "plane_create_issue" if self.write => {
                 let input = issue::Create::parse(args)?;
                 let project = input.project(self.default_project.as_deref())?;
@@ -91,6 +103,10 @@ fn tools(write: bool) -> Vec<Value> {
     let text = json!({"type":"string"});
     let id = json!({"type":"string","format":"uuid"});
     let lines = json!({"type":"array","items":text,"maxItems":12});
+    let progress = object(
+        json!({"summary":text,"next":lines,"checks":lines,"commit_url":text}),
+        &["summary", "next"],
+    );
     let mut tools = vec![
         tool(
             "plane_search_issues",
@@ -106,6 +122,15 @@ fn tools(write: bool) -> Vec<Value> {
             "plane_issue_context",
             "Read a Plane work item URL, project members, comments and blocking relationships. If Gitea is configured, check linked Git file versions. Recheck before starting or submitting work.",
             object(json!({"issue":text}), &["issue"]),
+            true,
+        ),
+        tool(
+            "plane_preview_parent_checkpoint",
+            "Preview a progress comment on the native parent of a Plane child work item assigned to the current account. Pass the child URL as issue. Use verified progress from the child context and the current work. Show the returned parent and comment to the user and obtain confirmation before calling plane_publish_parent_checkpoint.",
+            object(
+                json!({"issue":text,"progress":progress}),
+                &["issue", "progress"],
+            ),
             true,
         ),
         tool(
@@ -132,7 +157,10 @@ fn tools(write: bool) -> Vec<Value> {
                 object(json!({"plan_id":text,"confirmed":{"type":"boolean"}}), &["plan_id","confirmed"]), false),
             tool("plane_checkpoint", "After the user confirms the text, share progress, verification and next actions in a Plane work item comment.",
                 object(json!({"issue":text,"summary":text,"next":lines,"checks":lines,"commit_url":text,"confirmed":{"type":"boolean"}}),
-                    &["issue","summary","next","confirmed"]), false)
+                    &["issue","summary","next","confirmed"]), false),
+            tool(PUBLISH_PARENT_CHECKPOINT, "After the user confirms the destination and comment shown by plane_preview_parent_checkpoint, publish that preview to the child's parent. Pass the same child URL and progress, the preview_id, confirmed=true, and the child's lease_id if applicable.",
+                object(json!({"issue":text,"progress":progress,"preview_id":text,"confirmed":{"type":"boolean"}}),
+                    &["issue","progress","preview_id","confirmed"]), false),
         ]);
     }
     tools

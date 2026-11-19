@@ -35,6 +35,7 @@ struct Fixture {
     blockers: HashMap<String, Vec<String>>,
     fail_create_once: bool,
     fail_relation_once: bool,
+    fail_comment_once: bool,
     changed: bool,
     repeat_cursor: bool,
     default_assignee: Option<&'static str>,
@@ -178,6 +179,9 @@ async fn write(
                 .entry(id.to_string())
                 .or_default()
                 .push(comment.clone());
+            if std::mem::take(&mut data.fail_comment_once) {
+                return Err(StatusCode::BAD_GATEWAY);
+            }
             Ok(Json(comment))
         }
         _ => Err(StatusCode::NOT_FOUND),
@@ -316,17 +320,8 @@ fn start_mcp(
     Mcp::start(cmd)
 }
 
-#[tokio::test]
-async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracking() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let fixture = Arc::new(Mutex::new(Fixture {
-        base: base.clone(),
-        fail_create_once: true,
-        fail_relation_once: true,
-        ..Fixture::default()
-    }));
-    let router = Router::new()
+fn api(fixture: Data) -> Router {
+    Router::new()
         .route("/plane/api/v1/workspaces/team/projects/", get(projects))
         .route(
             "/plane/api/v1/workspaces/team/projects/{project}/",
@@ -349,7 +344,113 @@ async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracki
             "/gitea/api/v1/repos/team/specs/contents/schema.yaml",
             get(contents),
         )
-        .with_state(fixture.clone());
+        .with_state(fixture)
+}
+
+#[tokio::test]
+async fn plane_child_checkpoint_requires_a_current_preview_and_writes_only_to_the_parent() {
+    const PREVIEW: &str = "plane_preview_parent_checkpoint";
+    const PUBLISH: &str = "plane_publish_parent_checkpoint";
+    let child = "55555555-5555-4555-8555-000000000010";
+    let other_parent = "55555555-5555-4555-8555-000000000011";
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let fixture = Arc::new(Mutex::new(Fixture {
+        items: vec![
+            json!({"id":child,"project":PROJECT,"name":"Export <CSV>","sequence_id":2,
+                "assignees":[ALICE],"parent":PARENT}),
+            json!({"id":other_parent,"project":PROJECT,"name":"Other parent","sequence_id":3,
+                "assignees":[ALICE]}),
+        ],
+        fail_comment_once: true,
+        ..Fixture::default()
+    }));
+    let router = api(fixture.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let dir = TempDir::new().unwrap();
+    let plane_token = token(dir.path(), "plane-token", "fake-plane-key");
+    let mut mcp = start_mcp(&base, &plane_token, None, true);
+    let initialize = json!({"protocolVersion":"2025-11-25"});
+    mcp.request("initialize", initialize.clone()).await;
+    let issue = format!("{base}/plane/team/browse/BILL-2/");
+    let progress = json!({"summary":"Export is ready & verified","checks":["CSV tests pass"],"next":["Review"]});
+    let draft = json!({"issue":issue,"progress":progress});
+    let preview = result(mcp.tool(PREVIEW, draft.clone()).await);
+    assert_eq!(preview["child_url"], issue);
+    assert_eq!(
+        preview["parent_url"],
+        format!("{base}/plane/team/browse/BILL-1/")
+    );
+    assert_eq!(preview["parent_title"], "Export");
+    let body = preview["comment_html"].as_str().unwrap();
+    assert!(body.contains(&format!("<a href=\"{issue}\">Export &lt;CSV&gt;</a>")));
+    assert!(body.contains("Export is ready &amp; verified"));
+
+    let mut publish = draft.clone();
+    publish["preview_id"] = preview["preview_id"].clone();
+    publish["confirmed"] = json!(false);
+    assert_eq!(mcp.tool(PUBLISH, publish.clone()).await["isError"], true);
+    publish["confirmed"] = json!(true);
+    let mut changed = publish.clone();
+    changed["progress"]["summary"] = json!("Unreviewed text");
+    assert_eq!(mcp.tool(PUBLISH, changed).await["isError"], true);
+
+    fixture.lock().unwrap().items[0]["parent"] = json!(other_parent);
+    assert_eq!(mcp.tool(PUBLISH, publish.clone()).await["isError"], true);
+    fixture.lock().unwrap().items[0]["parent"] = Value::Null;
+    assert_eq!(mcp.tool(PREVIEW, draft.clone()).await["isError"], true);
+    fixture.lock().unwrap().items[0]["parent"] = json!(PARENT);
+    fixture.lock().unwrap().items[0]["assignees"] = json!([BOB]);
+    assert_eq!(mcp.tool(PREVIEW, draft).await["isError"], true);
+    assert_eq!(mcp.tool(PUBLISH, publish.clone()).await["isError"], true);
+    fixture.lock().unwrap().items[0]["assignees"] = json!([ALICE]);
+
+    let mut reader = start_mcp(&base, &plane_token, None, false);
+    reader.request("initialize", initialize).await;
+    let tools = reader.request("tools/list", json!({})).await;
+    assert!(
+        !tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == PUBLISH)
+    );
+    assert_eq!(reader.tool(PUBLISH, publish.clone()).await["isError"], true);
+
+    let lease = result(
+        mcp.tool(
+            "mergelane_claim_task",
+            json!({"backend":"plane","issue":issue}),
+        )
+        .await,
+    );
+    assert_eq!(mcp.tool(PUBLISH, publish.clone()).await["isError"], true);
+    assert!(fixture.lock().unwrap().comments.is_empty());
+    publish["lease_id"] = lease["lease_id"].clone();
+    // Simulate a lost response after the parent comment has been saved.
+    assert_eq!(mcp.tool(PUBLISH, publish.clone()).await["isError"], true);
+    let saved = result(mcp.tool(PUBLISH, publish).await);
+    assert_eq!(saved["child_url"], issue);
+    assert_eq!(saved["parent_url"], preview["parent_url"]);
+    let data = fixture.lock().unwrap();
+    assert_eq!(data.comments.len(), 1);
+    assert_eq!(data.comments[PARENT].len(), 1);
+    assert_eq!(data.comments[PARENT][0]["id"], saved["comment_id"]);
+    assert_eq!(data.comments[PARENT][0]["comment_html"], body);
+    server.abort();
+}
+
+#[tokio::test]
+async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracking() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let fixture = Arc::new(Mutex::new(Fixture {
+        base: base.clone(),
+        fail_create_once: true,
+        fail_relation_once: true,
+        ..Fixture::default()
+    }));
+    let router = api(fixture.clone());
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let dir = TempDir::new().unwrap();
     let plane_token = token(dir.path(), "plane-token", "fake-plane-key");
@@ -380,7 +481,7 @@ async fn plane_ce_mcp_splits_assigns_recovers_and_shares_context_with_git_tracki
     lead.request("initialize", json!({"protocolVersion":"2025-06-18"}))
         .await;
     let tools = lead.request("tools/list", json!({})).await;
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 13);
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 15);
     let context = result(
         lead.tool("plane_issue_context", json!({"issue":parent}))
             .await,

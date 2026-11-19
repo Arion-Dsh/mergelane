@@ -262,7 +262,7 @@ impl Session {
                 self.call_backend(gitea, plane, name, args),
             )
             .await
-            .context("checkpoint took too long; inspect the issue before retrying because the remote result is unknown")?;
+            .context("checkpoint took too long; inspect the destination work item before retrying because the remote result is unknown")?;
         }
         self.call_backend(gitea, plane, name, args).await
     }
@@ -318,6 +318,9 @@ impl Session {
 
 fn checkpoint_backend(name: &str) -> Option<Backend> {
     use clap::ValueEnum as _;
+    if name == plane::mcp::PUBLISH_PARENT_CHECKPOINT {
+        return Some(Backend::Plane);
+    }
     Backend::from_str(name.strip_suffix("_checkpoint")?, false).ok()
 }
 

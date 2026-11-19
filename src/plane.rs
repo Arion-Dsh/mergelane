@@ -1,3 +1,4 @@
+mod checkpoint;
 pub(crate) mod mcp;
 mod plan;
 mod references;
@@ -147,6 +148,11 @@ impl Plane {
     }
 
     async fn item_link(&self, reference: &WorkItemRef, item: &WorkItem) -> anyhow::Result<String> {
+        let project = self.item_project(reference).await?;
+        Ok(self.browse_link(&reference.workspace, &project.identifier, item.sequence_id))
+    }
+
+    async fn item_project(&self, reference: &WorkItemRef) -> anyhow::Result<search::Project> {
         let project: search::Project = self
             .get(
                 self.project_api(&reference.workspace, reference.project, &[]),
@@ -157,7 +163,7 @@ impl Plane {
             project.id == reference.project,
             "Plane returned a different project"
         );
-        Ok(self.browse_link(&reference.workspace, &project.identifier, item.sequence_id))
+        Ok(project)
     }
 
     pub async fn context(&self, reference: &str, gitea: Option<&Gitea>) -> anyhow::Result<Value> {

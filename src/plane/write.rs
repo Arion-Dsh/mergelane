@@ -1,14 +1,12 @@
 use anyhow::{Context as _, ensure};
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::{
     ApiError, Comment, Plane, SOURCE, WorkItem, WorkItemRef, plan::Plan, references::html,
 };
-use crate::{issue, validation::simple_text};
+use crate::issue;
 
 impl Plane {
     pub(super) async fn create_issue(
@@ -268,7 +266,7 @@ impl Plane {
         Ok(found)
     }
 
-    async fn publish_comment(
+    pub(super) async fn publish_comment(
         &self,
         item: &WorkItemRef,
         external: &str,
@@ -297,68 +295,8 @@ impl Plane {
             other => other,
         }
     }
-
-    pub async fn checkpoint(&self, checkpoint: Checkpoint) -> anyhow::Result<Value> {
-        ensure!(
-            checkpoint.confirmed,
-            "the user must confirm before publishing a checkpoint"
-        );
-        ensure!(
-            simple_text(&checkpoint.summary, 500),
-            "checkpoint summary must be a single line"
-        );
-        for lines in [&checkpoint.next, &checkpoint.checks] {
-            ensure!(
-                lines.len() <= 12 && lines.iter().all(|line| simple_text(line, 500)),
-                "provide at most 12 single-line items"
-            );
-        }
-        if let Some(commit_url) = &checkpoint.commit_url {
-            let url = reqwest::Url::parse(commit_url).context("invalid checkpoint commit URL")?;
-            ensure!(
-                url.scheme() == "https"
-                    && url.host().is_some()
-                    && url.username().is_empty()
-                    && url.password().is_none(),
-                "checkpoint commit URL must use HTTPS without credentials"
-            );
-        }
-        let item = self.reference(&checkpoint.issue).await?;
-        let work_item = self.item(&item).await?;
-        let digest = Sha256::digest(serde_json::to_vec(&checkpoint)?);
-        let external = format!("checkpoint:{}:{digest:x}", item.item);
-        let mut body = format!(
-            "<h3>Checkpoint</h3><p>{}</p><h4>Verification</h4><ul>",
-            html(&checkpoint.summary)
-        );
-        if let Some(commit_url) = &checkpoint.commit_url {
-            body.push_str(&format!("<li>Commit: {}</li>", html(commit_url)));
-        }
-        for line in &checkpoint.checks {
-            body.push_str(&format!("<li>{}</li>", html(line)));
-        }
-        body.push_str("</ul><h4>Next</h4><ul>");
-        for line in &checkpoint.next {
-            body.push_str(&format!("<li>{}</li>", html(line)));
-        }
-        body.push_str("</ul>");
-        let comment = self.publish_comment(&item, &external, body).await?;
-        Ok(json!({"issue":self.item_link(&item, &work_item).await?,"comment_id":comment.id}))
-    }
 }
 
 fn status(error: &anyhow::Error) -> Option<StatusCode> {
     error.downcast_ref::<ApiError>().map(|error| error.status)
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Checkpoint {
-    issue: String,
-    summary: String,
-    next: Vec<String>,
-    #[serde(default)]
-    checks: Vec<String>,
-    commit_url: Option<String>,
-    confirmed: bool,
 }

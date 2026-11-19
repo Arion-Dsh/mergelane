@@ -83,6 +83,8 @@ mergelane pull --backend plane --project BILL
 
 `--gitea-write`、`--plane-write`、`--github-write`、`--gitlab-write`、`--jira-write` 各自额外提供对应平台的 `*_create_issue`、`*_assign_issue`、`*_edit_issue`、`*_apply_plan` 和 `*_checkpoint`。五个开关相互独立，并且仍受远端账号权限与客户端审批控制。发布计划需匹配当前会话的最新 `plan_id`，写入需调用方提供确认标记。使用 `mergelane init --default-project <项目>` 时，个人配置会为所选平台保存 `default_project`。团队流程见 [协作指南](collaboration.md)。
 
+Plane 的 `plane_preview_parent_checkpoint` 可预览发往原生父工单的子工单进度，开启 `--plane-write` 后可通过 `plane_publish_parent_checkpoint` 发布已确认的预览。[向父工单汇报子工单进度](plane.md#向父工单汇报子工单进度)
+
 本地领取默认可用，与各平台发布开关独立。`mcp --read-only` 禁用远端发布及本地领取、续租和释放，保留租约状态查询。`doctor` 始终只读，账号连接成功不代表具备特定项目或写入权限。
 
 租约默认 120 秒，`mergelane mcp --lease-seconds <秒数>` 可设为 3–600 秒。客户端共用 `~/.mergelane/leases-v1/`（Windows 使用用户配置文件目录下的 `.mergelane/leases-v1/`），与项目所在目录和 `--config` 无关。各客户端应使用同一个本机用户目录。不要在进程运行时移动或删除租约文件。见 [本地任务租约](collaboration.md#本地任务租约)。

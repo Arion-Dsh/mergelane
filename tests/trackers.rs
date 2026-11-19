@@ -626,12 +626,14 @@ async fn all_five_backends_keep_tool_names_and_write_permissions_separate() {
     initialize(&mut client).await;
     let tools = client.request("tools/list", json!({})).await;
     let tools = tools["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 30);
+    assert_eq!(tools.len(), 31);
     let names = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(names.len(), tools.len());
+    assert!(names.contains("plane_preview_parent_checkpoint"));
+    assert!(!names.contains("plane_publish_parent_checkpoint"));
     for backend in ["gitea", "plane", "github", "gitlab", "jira"] {
         for operation in ["apply_plan", "create_issue", "assign_issue", "edit_issue"] {
             let name = format!("{backend}_{operation}");

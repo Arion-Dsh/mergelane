@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Preview and publish a progress comment on a Plane parent work item using the assigned child's link. The preview shows the destination and comment for confirmation, and the published comment links back to the child.
+
 ## 0.1.0
 
 First release of MergeLane: shared tasks, assignments, dependencies and progress for people collaborating through their own agents.

@@ -2,7 +2,7 @@
 
 主仓库为 [Arion-Dsh/mergelane](https://github.com/Arion-Dsh/mergelane)，本地 origin 使用 `git@github.com:Arion-Dsh/mergelane.git`。
 
-固定使用 cargo-dist 0.34.0，[dist-workspace.toml](../dist-workspace.toml) 是发布配置，[release.yml](../.github/workflows/release.yml) 为生成的工作流。维护者手动运行 Release：计算计划 → 各平台检查与构建 → 汇总安装器与校验和 → GitHub Release → 更新 Homebrew Tap。默认输入 `dry-run` 只构建安装包与安装器；指定 `v0.1.0` 才会正式发布。推送标签不会触发发布，PR 默认只检查发布计划。
+固定使用 cargo-dist 0.34.0，[dist-workspace.toml](../dist-workspace.toml) 是发布配置，[release.yml](../.github/workflows/release.yml) 为生成的工作流。维护者手动运行 Release：计算计划 → 各平台检查与构建 → 汇总安装器与校验和 → GitHub Release → 更新 Homebrew Tap。默认输入 `dry-run` 只构建安装包与安装器。正式发布时传入与 Cargo.toml 版本匹配的标签。推送标签不会触发发布，PR 默认只检查发布计划。
 
 | 目标 | 安装包 |
 | --- | --- |
@@ -49,17 +49,17 @@ cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安
 ```sh
 dist generate
 dist generate --check
-dist plan --tag v0.1.0
+dist plan --tag v0.1.1
 ```
 
 标签应匹配 Cargo.toml 的版本号。自定义构建检查放在 [.github/release-check-steps.yml](../.github/release-check-steps.yml)，通过 `github-build-setup` 注入；不要手改生成的工作流。升级 dist 后重新生成并审阅变更。
 
 本机可执行 `dist build --artifacts=local --target aarch64-apple-darwin` 验证对应归档。这不能代替其他平台、全局安装器或真实 Homebrew 安装测试。完整全局打包需要有效 HEAD。
 
-准备好后由维护者确认待发布的 `main` 提交与演练一致，再手动运行 Release 并填写匹配 Cargo.toml 的 `v0.1.0`。该操作创建版本标签、公开 Release，并更新稳定 Tap；预发布版本默认不更新稳定 Tap。
+确认待发布的 `main` 提交与演练一致后，手动运行 Release 并填写匹配 Cargo.toml 的版本标签，例如 `v0.1.1`。该操作创建版本标签、公开 Release，并更新稳定 Tap；预发布版本默认不更新稳定 Tap。
 
 ```sh
-gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=v0.1.0
+gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=v0.1.1
 ```
 
 ## 发布后验收
