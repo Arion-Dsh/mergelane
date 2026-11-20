@@ -200,9 +200,14 @@ fn configure_managed_profile(path: &Path) -> anyhow::Result<()> {
     };
     let (backend, settings) = options.collect(true)?;
     settings.validate(backend)?;
-    let token =
-        rpassword::prompt_password("Paste the personal token you created on the platform: ")
-            .context("cannot read the personal token from the terminal")?;
+    // Initialize the terminal backend before rendering the token prompt so an
+    // immediate paste cannot reach the terminal while echo is still enabled.
+    let token = inquire::Password::new("Paste the personal token you created on the platform:")
+        .with_display_mode(inquire::PasswordDisplayMode::Hidden)
+        .without_confirmation()
+        .with_render_config(inquire::ui::RenderConfig::empty())
+        .prompt()
+        .context("cannot read the personal token from the terminal")?;
     save_managed_profile(path, backend, settings, &token)
 }
 

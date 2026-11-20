@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Disable terminal echo before the setup wizard prompts for a personal token, including when the token is pasted immediately.
+
 ## 0.1.2
 
 - Add a one-command installer for macOS, Linux, and Windows that installs `mergelane`, registers MCP in the selected clients, and installs the shared Skill for Codex, Claude Code, and Cursor.

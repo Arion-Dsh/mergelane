@@ -40,6 +40,8 @@ gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=dry-run
 
 `Package smoke` 只接受主仓库当前 `main` 提交上维护者手动运行的成功构建，权限仅为读取源码和构建产物，不执行 PR 产物；演练期间若更新 `main`，需重新演练该提交。演练与 Package smoke 均成功后，再开始正式发布。
 
+Linux 和 macOS 的安装包检查还会在伪终端中运行 `setup`，确认显示 token 提示时已关闭回显，立即粘贴的假 token 能正确保存，以及退出后终端恢复原始状态。
+
 cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安装器不内置校验。演练在执行安装器前独立核对归档 SHA-256；Windows 用户需要校验下载内容时，使用 Release ZIP 与附带的 `.sha256` 文件。
 
 ## 修改和验证配置
@@ -49,17 +51,17 @@ cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安
 ```sh
 dist generate
 dist generate --check
-dist plan --tag v0.1.2
+dist plan --tag v0.1.3
 ```
 
 标签应匹配 Cargo.toml 的版本号。自定义构建检查放在 [.github/release-check-steps.yml](../.github/release-check-steps.yml)，通过 `github-build-setup` 注入；不要手改生成的工作流。升级 dist 后重新生成并审阅变更。
 
 本机可执行 `dist build --artifacts=local --target aarch64-apple-darwin` 验证对应归档。这不能代替其他平台、全局安装器或真实 Homebrew 安装测试。完整全局打包需要有效 HEAD。
 
-确认待发布的 `main` 提交与演练一致后，手动运行 Release 并填写匹配 Cargo.toml 的版本标签，例如 `v0.1.2`。该操作创建版本标签并公开 Release，同时更新稳定 Tap。预发布版本默认跳过稳定 Tap 的更新。
+确认待发布的 `main` 提交与演练一致后，手动运行 Release 并填写匹配 Cargo.toml 的版本标签，例如 `v0.1.3`。该操作创建版本标签并公开 Release，同时更新稳定 Tap。预发布版本默认跳过稳定 Tap 的更新。
 
 ```sh
-gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=v0.1.2
+gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=v0.1.3
 ```
 
 ## 发布后验收
