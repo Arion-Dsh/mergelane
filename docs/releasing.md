@@ -38,9 +38,11 @@ gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=dry-run
 
 成功后自动触发 [Package smoke](../.github/workflows/package-smoke.yml)，按同一份 dist 计划选择原生 runner：核对归档 SHA-256、解包、运行版本与帮助命令、使用临时假凭据执行 `init`、离线 `doctor` 和只读 MCP 握手。各平台还会使用生成的 shell／PowerShell 安装器安装到临时目录，再运行同样的 CLI 检查；两个 macOS runner 另通过临时 Tap 安装生成的 Formula。此阶段只把下载地址替换为本机归档服务，保留原始校验和，安装器不修改用户 PATH；验证结束清理测试安装和 Tap。它不能代替发布后从正式 GitHub URL 安装的检查。
 
-`Package smoke` 只接受主仓库当前 `main` 提交上维护者手动运行的成功构建，权限仅为读取源码和构建产物，不执行 PR 产物；演练期间若更新 `main`，需重新演练该提交。演练与 Package smoke 均成功后，再开始正式发布。
+`Package smoke` 会在主仓库 `main` 上手动触发的发布演练和正式发布成功后运行，并按每次构建的提交检出源码、读取产物。演练期间若更新 `main`，需演练新提交。演练与 Package smoke 均成功后，再开始正式发布。
 
 Linux 和 macOS 的安装包检查还会在伪终端中运行 `setup`，确认显示 token 提示时已关闭回显，立即粘贴的假 token 能正确保存，以及退出后终端恢复原始状态。
+
+Windows 检查通过原生伪终端运行一键安装脚本，安装该次构建的产物。测试在 token 提示出现时立即粘贴假 token，检查终端是否回显，并核对凭据文件、Claude Code MCP 配置和随包 Skill。
 
 cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安装器不内置校验。演练在执行安装器前独立核对归档 SHA-256；Windows 用户需要校验下载内容时，使用 Release ZIP 与附带的 `.sha256` 文件。
 

@@ -16,7 +16,6 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'workflow_dispatch' &&
       github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_sha == github.sha &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-22.04
     outputs:
@@ -69,8 +68,13 @@ jobs:
           path: packages
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
-      - name: Install using generated PowerShell installer
+      - name: Set up Windows pseudoconsole
         if: runner.os == 'Windows'
+        run: >-
+          python -m pip install --only-binary=:all: pywinpty==3.1.2
+      - name: Test Windows one-command install and token echo
+        if: runner.os == 'Windows'
+        shell: powershell
         env:
           TARGET: ${{ matrix.targets[0] }}
         run: python scripts/smoke_installer.py packages "$env:TARGET"

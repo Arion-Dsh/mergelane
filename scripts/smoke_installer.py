@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the generated shell/PowerShell installer using local release archives."""
+"""Exercise the shell installer and Windows one-command setup using local release archives."""
 
 import argparse
 from functools import partial
@@ -35,18 +35,21 @@ def main():
     handler = partial(SimpleHTTPRequestHandler, directory=str(packages))
     with tempfile.TemporaryDirectory(prefix="mergelane-installer-") as temp:
         root = Path(temp)
-        env["MERGELANE_UNMANAGED_INSTALL"] = str(root / "installed")
         env["MERGELANE_NO_MODIFY_PATH"] = "1"
         with ThreadingHTTPServer(("127.0.0.1", 0), handler) as server:
             thread = Thread(target=server.serve_forever, daemon=True)
             thread.start()
             env["MERGELANE_DOWNLOAD_URL"] = f"http://127.0.0.1:{server.server_port}"
-            command = (["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
-                       if windows else ["sh"])
             try:
-                subprocess.run([*command, str(installer)], env=env, check=True, timeout=120)
-                smoke(root / "installed" / ("mergelane.exe" if windows else "mergelane"),
-                      root, version)
+                if windows:
+                    from smoke_windows_setup import smoke_windows_setup
+
+                    binary = smoke_windows_setup(root, env)
+                else:
+                    env["MERGELANE_UNMANAGED_INSTALL"] = str(root / "installed")
+                    subprocess.run(["sh", str(installer)], env=env, check=True, timeout=120)
+                    binary = root / "installed" / "mergelane"
+                smoke(binary, root, version)
             finally:
                 server.shutdown()
                 thread.join(timeout=5)
