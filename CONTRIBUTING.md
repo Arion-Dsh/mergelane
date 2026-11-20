@@ -56,4 +56,4 @@ cargo test --locked --all-features
 
 由维护者确认版本号和许可证、文档链接、配置示例、依赖变更及 CI 结果。发布前运行 Release 的 `dry-run`，核对五个平台的原生构建以及后续 Package smoke 归档与 Homebrew 安装检查。确认仓库已配置安全问题的私下报告渠道，再公开发布。首次发布前检查完整待提交文件和 Git 历史中的凭据；忽略规则不会删除历史中的秘密。
 
-`publish = false` 禁止 crates.io 发布，二进制分发由固定版本 cargo-dist 管理。修改 `dist-workspace.toml` 后运行 `dist generate` 和 `dist generate --check`；构建前检查在 `.github/release-check-steps.yml` 中维护。Tap、Actions Secret、手动发布和验收步骤见 [发布指南](docs/releasing.md)。
+`publish = false` 禁止 crates.io 发布，二进制分发由固定版本 cargo-dist 管理。修改 `dist-workspace.toml` 后运行 `python3 scripts/generate_release_workflow.py` 和 `python3 scripts/generate_release_workflow.py --check`。构建前检查在 `.github/release-check-steps.yml` 中维护。Tap、Actions Secret、手动发布和验收步骤见 [发布指南](docs/releasing.md)。

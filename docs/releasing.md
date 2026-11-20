@@ -2,7 +2,7 @@
 
 主仓库为 [Arion-Dsh/mergelane](https://github.com/Arion-Dsh/mergelane)，本地 origin 使用 `git@github.com:Arion-Dsh/mergelane.git`。
 
-固定使用 cargo-dist 0.34.0，[dist-workspace.toml](../dist-workspace.toml) 是发布配置，[release.yml](../.github/workflows/release.yml) 为生成的工作流。维护者手动运行 Release：计算计划 → 各平台检查与构建 → 汇总安装器与校验和 → GitHub Release → 更新 Homebrew Tap。默认输入 `dry-run` 只构建安装包与安装器。正式发布时传入与 Cargo.toml 版本匹配的标签。推送标签不会触发发布，PR 默认只检查发布计划。
+固定使用 cargo-dist 0.34.0，[dist-workspace.toml](../dist-workspace.toml) 是发布配置，[release.yml](../.github/workflows/release.yml) 为生成的工作流。维护者手动运行 Release，依次计算计划、构建各平台产物、生成安装器和校验和、验证 Windows 一键安装、公开 GitHub Release 并更新 Homebrew Tap。默认输入 `dry-run` 会构建并验证产物。正式发布时传入与 Cargo.toml 版本匹配的标签。推送标签不会触发发布，PR 默认只检查发布计划。
 
 | 目标 | 安装包 |
 | --- | --- |
@@ -34,15 +34,15 @@ v0.1.0 暂缓 GitHub、GitLab、Jira 的真实账号接入验收，不作为首�
 gh workflow run release.yml --repo Arion-Dsh/mergelane --ref main -f tag=dry-run
 ```
 
-这会在五个原生 runner 上运行格式、编译、Clippy、测试和归档构建，随后生成 Formula、shell 和 PowerShell 安装器及归档校验和。产物保存在 Actions Artifacts，不创建 Release 或更新 Tap。
+这会在五个原生 runner 上运行格式、编译、Clippy、测试和归档构建，随后生成 Formula、shell 和 PowerShell 安装器及归档校验和。产物保存在 Actions Artifacts。
 
-成功后自动触发 [Package smoke](../.github/workflows/package-smoke.yml)，按同一份 dist 计划选择原生 runner：核对归档 SHA-256、解包、运行版本与帮助命令、使用临时假凭据执行 `init`、离线 `doctor` 和只读 MCP 握手。各平台还会使用生成的 shell／PowerShell 安装器安装到临时目录，再运行同样的 CLI 检查；两个 macOS runner 另通过临时 Tap 安装生成的 Formula。此阶段只把下载地址替换为本机归档服务，保留原始校验和，安装器不修改用户 PATH；验证结束清理测试安装和 Tap。它不能代替发布后从正式 GitHub URL 安装的检查。
+演练和正式发布都会在同一次 Release 工作流中执行 [Windows 检查](../.github/workflows/release-windows-smoke.yml)。检查下载当次构建的 PowerShell 安装器、ZIP 和校验和，用本机归档服务和原生伪终端运行一键安装。在 token 提示出现时立即粘贴假 token，检查终端回显、凭据文件、Claude Code MCP 配置和随包 Skill，再执行 CLI 检查。正式发布的 `host` 任务必须等这项检查成功后才会公开 GitHub Release。
+
+Release 成功后自动触发 [Package smoke](../.github/workflows/package-smoke.yml)，按同一份 dist 计划选择原生 runner，核对归档 SHA-256、解包、运行版本与帮助命令、使用临时假凭据执行 `init`、离线 `doctor` 和只读 MCP 握手。Linux 和 macOS 还会使用生成的 shell 安装器从本机归档服务安装到临时目录，两个 macOS runner 另通过临时 Tap 安装生成的 Formula。发布后还需检查正式 GitHub 下载地址。
 
 `Package smoke` 会在主仓库 `main` 上手动触发的发布演练和正式发布成功后运行，并按每次构建的提交检出源码、读取产物。演练期间若更新 `main`，需演练新提交。演练与 Package smoke 均成功后，再开始正式发布。
 
 Linux 和 macOS 的安装包检查还会在伪终端中运行 `setup`，确认显示 token 提示时已关闭回显，立即粘贴的假 token 能正确保存，以及退出后终端恢复原始状态。
-
-Windows 检查通过原生伪终端运行一键安装脚本，安装该次构建的产物。测试在 token 提示出现时立即粘贴假 token，检查终端是否回显，并核对凭据文件、Claude Code MCP 配置和随包 Skill。
 
 cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安装器不内置校验。演练在执行安装器前独立核对归档 SHA-256；Windows 用户需要校验下载内容时，使用 Release ZIP 与附带的 `.sha256` 文件。
 
@@ -51,12 +51,12 @@ cargo-dist 0.34.0 的 Formula 和 shell 安装器内置 SHA-256，PowerShell 安
 安装固定版本 cargo-dist 后运行：
 
 ```sh
-dist generate
-dist generate --check
+python3 scripts/generate_release_workflow.py
+python3 scripts/generate_release_workflow.py --check
 dist plan --tag v0.1.3
 ```
 
-标签应匹配 Cargo.toml 的版本号。自定义构建检查放在 [.github/release-check-steps.yml](../.github/release-check-steps.yml)，通过 `github-build-setup` 注入；不要手改生成的工作流。升级 dist 后重新生成并审阅变更。
+标签应匹配 Cargo.toml 的版本号。自定义构建检查放在 [.github/release-check-steps.yml](../.github/release-check-steps.yml)，通过 `github-build-setup` 注入。生成脚本基于固定版本的 cargo-dist 输出加入 Windows 发布前检查，Release 的计划任务会验证生成结果。升级 dist 后用同一脚本重新生成并审阅变更。
 
 本机可执行 `dist build --artifacts=local --target aarch64-apple-darwin` 验证对应归档。这不能代替其他平台、全局安装器或真实 Homebrew 安装测试。完整全局打包需要有效 HEAD。
 

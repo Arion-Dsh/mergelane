@@ -63,21 +63,12 @@ jobs:
         run: python3 scripts/smoke_package.py packages "$TARGET"
         if: runner.os != 'Windows'
       - uses: actions/download-artifact@v8
+        if: runner.os != 'Windows'
         with:
           name: artifacts-build-global
           path: packages
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
-      - name: Set up Windows pseudoconsole
-        if: runner.os == 'Windows'
-        run: >-
-          python -m pip install --only-binary=:all: pywinpty==3.1.2
-      - name: Test Windows one-command install and token echo
-        if: runner.os == 'Windows'
-        shell: powershell
-        env:
-          TARGET: ${{ matrix.targets[0] }}
-        run: python scripts/smoke_installer.py packages "$env:TARGET"
       - name: Install using generated shell installer
         if: runner.os != 'Windows'
         env:

@@ -4,6 +4,8 @@ members = ["cargo:."]
 [dist]
 cargo-dist-version = "0.34.0"
 ci = ["github"]
+# The release workflow is generated and checked by scripts/generate_release_workflow.py.
+allow-dirty = ["ci"]
 installers = ["shell", "powershell", "homebrew"]
 targets = [
   "aarch64-apple-darwin",
